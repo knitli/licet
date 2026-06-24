@@ -1,0 +1,5 @@
+[shell_alias]
+claude = "ECC_GATEGUARD=off COLORTERM=1 claude"
+
+[settings]
+experimental = true

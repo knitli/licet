@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/lichen/report.schema.json",
+  "title": "Lichen Drift/Apply Report",
+  "description": "Machine-readable output of `check` and `apply` (--format json). Mirrors the ReconciliationPlan/Report entity in data-model.md.",
+  "type": "object",
+  "required": ["version", "command", "summary", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "command": { "type": "string", "enum": ["check", "apply", "lint"] },
+    "exit_code": { "type": "integer", "enum": [0, 1, 2, 3] },
+    "summary": {
+      "type": "object",
+      "required": ["pass", "counts"],
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "boolean", "description": "True only if no file is WrongLicense/MissingHeader/Uncovered/Unreadable and no unresolved conflict (FR-012a, FR-025, SC-009)." },
+        "partial": { "type": "boolean", "description": "Apply could not complete fully (FR-021)." },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "compliant": { "type": "integer", "minimum": 0 },
+            "wrong_license": { "type": "integer", "minimum": 0 },
+            "missing_header": { "type": "integer", "minimum": 0 },
+            "uncovered": { "type": "integer", "minimum": 0 },
+            "excluded": { "type": "integer", "minimum": 0 },
+            "unreadable": { "type": "integer", "minimum": 0, "description": "Files skipped as non-UTF-8/unsafe to edit; counts as failure (FR-025)." },
+            "conflicts": { "type": "integer", "minimum": 0, "description": "Files with an unresolved equal-specificity rule conflict (FR-022)." },
+            "contradictions": { "type": "integer", "minimum": 0, "description": "Files left internally contradictory, e.g. by additive apply (FR-020)." }
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "drift"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string" },
+          "drift": {
+            "type": "string",
+            "enum": ["compliant", "wrong_license", "missing_header", "uncovered", "excluded", "unreadable"]
+          },
+          "declared": { "type": ["string", "null"], "description": "Declared SPDX expression from the matched rule or default." },
+          "actual": { "type": ["string", "null"], "description": "Detected SPDX expression (in-file header or out-of-band)." },
+          "actual_source": {
+            "type": ["string", "null"],
+            "enum": ["header", "reuse_toml", "dep5", null],
+            "description": "Where the actual license was detected (FR-003a)."
+          },
+          "matched_rule": { "type": ["string", "null"], "description": "Identifier/selector of the winning rule (FR-002)." },
+          "conflict": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+              "rules": { "type": "array", "items": { "type": "string" } },
+              "message": { "type": "string" }
+            },
+            "description": "Set when equal-specificity rules matched (FR-022)."
+          },
+          "change": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+              "mode": { "type": "string", "enum": ["additive", "destructive"] },
+              "target_header": { "type": ["integer", "null"], "minimum": 0 },
+              "wrote_header": { "type": "boolean" },
+              "preserved_copyrights": { "type": "integer", "minimum": 0 },
+              "applied": { "type": "boolean", "description": "False on dry-run or when this file's write failed (FR-021)." }
+            },
+            "description": "Present for apply (or dry-run preview). Copyright preserved by default (SC-004)."
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["contradiction", "rule_conflict", "missing_license_text", "partial_apply", "source_override", "encoding_skipped"]
+          },
+          "path": { "type": ["string", "null"] },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "license_texts": {
+      "type": "object",
+      "description": "License-text inventory (FR-014, FR-017).",
+      "additionalProperties": false,
+      "properties": {
+        "referenced": { "type": "array", "items": { "type": "string" } },
+        "present": { "type": "array", "items": { "type": "string" } },
+        "missing": { "type": "array", "items": { "type": "string" } },
+        "bundled_available": { "type": "array", "items": { "type": "string" } },
+        "spdx_list_version": { "type": "string", "description": "Version of the embedded SPDX license list this binary carries (FR-028)." }
+      }
+    }
+  }
+}
