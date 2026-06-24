@@ -2,14 +2,14 @@
 
 This guide proves the feature works end-to-end. Each scenario maps to a user story in
 [spec.md](./spec.md) and the contracts in [contracts/](./contracts/). Commands use the
-working binary name `lichen` and the config schema in
+working binary name `licet` and the config schema in
 [contracts/config-schema.md](./contracts/config-schema.md).
 
 ## Prerequisites
 
 - Rust stable toolchain (1.83+) — `rustup show`
 - A git repository to operate on (default coverage = tracked files)
-- Build the tool: `cargo build --release` → `./target/release/lichen`
+- Build the tool: `cargo build --release` → `./target/release/licet`
 
 ## Setup: declare intent once (US1, FR-001)
 
@@ -42,7 +42,7 @@ paths = ["vendor/**", "target/**"]
 ## Scenario 1 — See drift (US1 / SC-001, SC-003)
 
 ```bash
-lichen check
+licet check
 ```
 
 **Expect**: exit `1` with a per-file report. A Rust file under `examples/` carrying
@@ -53,19 +53,19 @@ rule/default covers is `uncovered`; excluded paths are `excluded`, not flagged.
 Machine form (validates against [report.schema.json](./contracts/report.schema.json)):
 
 ```bash
-lichen check --format json | jq '.summary.counts'
+licet check --format json | jq '.summary.counts'
 ```
 
 ## Scenario 2 — Reconcile (US2 / SC-002, SC-004)
 
 ```bash
 git add license.toml && git commit -m "Add license config"   # apply refuses on a dirty tree
-lichen apply            # destructive on license id by default; copyright preserved; atomic writes
-lichen check            # now exits 0
+licet apply            # destructive on license id by default; copyright preserved; atomic writes
+licet check            # now exits 0
 ```
 
 > `apply` refuses to modify a dirty working tree so `git diff`/`git checkout` is always a
-> clean undo (FR-024). Use `lichen apply --allow-dirty` to override (e.g. for a first run
+> clean undo (FR-024). Use `licet apply --allow-dirty` to override (e.g. for a first run
 > where you haven't committed `license.toml` yet).
 
 **Expect**: every covered file matches declared intent; the re-run reports zero drift
@@ -74,8 +74,8 @@ copyright line is **unchanged** (SC-004). Compare additive vs destructive on a
 conflicting file:
 
 ```bash
-lichen apply --additive   # keeps the old license line AND adds declared → warns contradiction (FR-020)
-lichen apply --target-header 1   # replace the 2nd header block, not the first (FR-008)
+licet apply --additive   # keeps the old license line AND adds declared → warns contradiction (FR-020)
+licet apply --target-header 1   # replace the 2nd header block, not the first (FR-008)
 ```
 
 ## Scenario 3 — Unknown file type (US3 / SC-005)
@@ -83,8 +83,8 @@ lichen apply --target-header 1   # replace the 2nd header block, not the first (
 With the `[[comment_style]] ext = "pkl"` entry already in config:
 
 ```bash
-lichen apply --files hk.pkl
-lichen check --files hk.pkl     # header round-trips; recognized, no per-file flag
+licet apply --files hk.pkl
+licet check --files hk.pkl     # header round-trips; recognized, no per-file flag
 ```
 
 **Expect**: `hk.pkl` gets a C-style-commented SPDX header on apply, and the subsequent
@@ -95,13 +95,13 @@ check recognizes it (compliant). No `-s style` flag needed on either run.
 Commit-hook (staged subset) mode:
 
 ```bash
-lichen check --staged       # fast; blocks the commit on drift, names offending files
+licet check --staged       # fast; blocks the commit on drift, names offending files
 ```
 
 Full CI scan + performance gate:
 
 ```bash
-time lichen check           # full repo, single authoritative pass/fail
+time licet check           # full repo, single authoritative pass/fail
 ```
 
 **Expect**: staged check is unobtrusive. Performance has **two** bars (SC-006): a repeat/
@@ -116,13 +116,13 @@ A non-UTF-8 file is reported as `unreadable` and fails the gate (never silently 
 Bootstrap config from an existing REUSE project:
 
 ```bash
-lichen init --from-reuse    # derives license.toml from existing headers + REUSE.toml
+licet init --from-reuse    # derives license.toml from existing headers + REUSE.toml
 ```
 
 Confirm REUSE-spec compliance of a reconciled repo (offline by default, FR-017):
 
 ```bash
-lichen lint                 # LICENSES/ completeness, out-of-band coverage, missing texts
+licet lint                 # LICENSES/ completeness, out-of-band coverage, missing texts
 reuse lint                  # the upstream REUSE tool still reports the repo compliant
 ```
 

@@ -1,0 +1,22 @@
+# Rust
+/target/
+debug/
+release/
+**/*.rs.bk
+*.rlib
+*.prof*
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Logs / env
+*.log
+.env*
+
+# licet scan cache (default location)
+.licet-cache

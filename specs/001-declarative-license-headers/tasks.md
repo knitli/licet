@@ -12,7 +12,7 @@ description: "Task list for Declarative License Header Management"
 
 **Organization**: Tasks are grouped by user story (P1–P5) so each story is independently implementable and testable.
 
-**Binary/working names**: binary `lichen`, config `license.toml` (per contracts).
+**Binary/working names**: binary `licet`, config `license.toml` (per contracts).
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -30,9 +30,9 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Create the Cargo project skeleton: `Cargo.toml` (crate `lichen`, `[lib]` + `[[bin]]`), `src/lib.rs`, `src/main.rs`, and empty module dirs `src/{cli,config,rules,walk,detect,comment,spdx,reconcile,report,reuse}/` each with a `mod.rs`, per plan.md "Source Code"
-- [ ] T002 Declare dependencies in `Cargo.toml`: `clap` (derive), `ignore`, `rayon`, `spdx`, `serde`, `toml`, `globset`, `gix`, `memchr`, `bstr`, `anyhow`, `thiserror`, and dev-deps `insta`, `assert_cmd`, `predicates`, `tempfile`, `criterion`
-- [ ] T003 [P] Configure `rustfmt.toml`, `clippy` lints (deny warnings) via `Cargo.toml`/`.cargo/config.toml`, and an `mise.toml`/CI task running `cargo fmt --check && cargo clippy && cargo test`
+- [X] T001 Create the Cargo project skeleton: `Cargo.toml` (crate `licet`, `[lib]` + `[[bin]]`), `src/lib.rs`, `src/main.rs`, and empty module dirs `src/{cli,config,rules,walk,detect,comment,spdx,reconcile,report,reuse}/` each with a `mod.rs`, per plan.md "Source Code"
+- [X] T002 Declare dependencies in `Cargo.toml`: `clap` (derive), `ignore`, `rayon`, `spdx`, `serde`, `toml`, `globset`, `gix`, `memchr`, `bstr`, `anyhow`, `thiserror`, and dev-deps `insta`, `assert_cmd`, `predicates`, `tempfile`, `criterion`
+- [X] T003 [P] Configure `rustfmt.toml`, `clippy` lints (deny warnings) via `Cargo.toml`/`.cargo/config.toml`, and an `mise.toml`/CI task running `cargo fmt --check && cargo clippy && cargo test`
 - [ ] T004 [P] Create test fixture scaffolding under `tests/fixtures/` with placeholder sample repos: `compliant/`, `wrong-license/`, `missing/`, `uncovered/`, `excluded/`, plus a `README.md` describing fixture conventions
 
 ---
@@ -43,13 +43,13 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 [P] Define core domain types in `src/domain.rs` (re-exported from `src/lib.rs`): `Selector` (Extension/Glob/ExactPath/Filename), `LicenseIntent` (+ `CopyrightPolicy` enum Preserve/PreserveAndAdd/Replace), `CommentStyle` primitives, `DriftClass`, `FileLicensingState`, `RuleConflict` — mirroring data-model.md §1–§6
-- [ ] T006 [P] Implement error types and exit-code mapping in `src/error.rs` and `src/main.rs`: library uses `thiserror`, binary uses `anyhow`; map results to exit codes 0/1/2/3 per contracts/cli.md
-- [ ] T007 Generate the embedded SPDX license-text table in `build.rs` from `assets/licenses/` (populate the corpus), exposing a compile-time lookup `id → text` per FR-017 / research.md §8
-- [ ] T008 Implement the SPDX expression engine in `src/spdx/mod.rs`: parse expressions via the `spdx` crate, canonicalize, and compare semantically (`A OR B` ≡ `B OR A`); expose `is_known_id`, `bundled_ids()` over the embedded table (FR-005, research.md §2)
-- [ ] T009 Implement config model + TOML deserialization in `src/config/schema.rs` and `src/config/mod.rs`: `LicensingConfiguration` (`default`, `rules`, `comment_styles`, `exclude`) per contracts/config-schema.md, with validation (exactly-one selector key, valid SPDX/`LicenseRef-*`, well-formed globs, duplicate-selector conflict surfacing) returning exit-2 config errors (FR-001, FR-010)
-- [ ] T010 Build the CLI skeleton in `src/cli/mod.rs` and `src/main.rs`: `clap` subcommands `check`/`apply`/`init`/`lint` and global flags `--config`, `--format human|json`, `--files`/`--files-from`/`-`, `--staged`, `--changed`, `--no-cache`/`--cache`, `--explain` (parse only; dispatch stubs) per contracts/cli.md
-- [ ] T011 Define the report model and renderers in `src/report/mod.rs` and `src/report/render.rs`: `Report`/`ReconciliationPlan`, `FileChange`, `Warning`, `summary.counts`, serde `--format json` conforming to contracts/report.schema.json, plus a human renderer (shared by check/apply/lint)
+- [X] T005 [P] Define core domain types in `src/domain.rs` (re-exported from `src/lib.rs`): `Selector` (Extension/Glob/ExactPath/Filename), `LicenseIntent` (+ `CopyrightPolicy` enum Preserve/PreserveAndAdd/Replace), `CommentStyle` primitives, `DriftClass`, `FileLicensingState`, `RuleConflict` — mirroring data-model.md §1–§6
+- [X] T006 [P] Implement error types and exit-code mapping in `src/error.rs` and `src/main.rs`: library uses `thiserror`, binary uses `anyhow`; map results to exit codes 0/1/2/3 per contracts/cli.md
+- [X] T007 Generate the embedded SPDX license-text table in `build.rs` from `assets/licenses/` (populate the corpus), exposing a compile-time lookup `id → text` per FR-017 / research.md §8
+- [X] T008 Implement the SPDX expression engine in `src/spdx/mod.rs`: parse expressions via the `spdx` crate, canonicalize, and compare semantically (`A OR B` ≡ `B OR A`); expose `is_known_id`, `bundled_ids()` over the embedded table (FR-005, research.md §2)
+- [X] T009 Implement config model + TOML deserialization in `src/config/schema.rs` and `src/config/mod.rs`: `LicensingConfiguration` (`default`, `rules`, `comment_styles`, `exclude`) per contracts/config-schema.md, with validation (exactly-one selector key, valid SPDX/`LicenseRef-*`, well-formed globs, duplicate-selector conflict surfacing) returning exit-2 config errors (FR-001, FR-010)
+- [X] T010 Build the CLI skeleton in `src/cli/mod.rs` and `src/main.rs`: `clap` subcommands `check`/`apply`/`init`/`lint` and global flags `--config`, `--format human|json`, `--files`/`--files-from`/`-`, `--staged`, `--changed`, `--no-cache`/`--cache`, `--explain` (parse only; dispatch stubs) per contracts/cli.md
+- [X] T011 Define the report model and renderers in `src/report/mod.rs` and `src/report/render.rs`: `Report`/`ReconciliationPlan`, `FileChange`, `Warning`, `summary.counts`, serde `--format json` conforming to contracts/report.schema.json, plus a human renderer (shared by check/apply/lint)
 
 **Checkpoint**: Foundation ready — config parses, SPDX compares, CLI parses, reports render. User stories can now begin.
 
@@ -59,24 +59,24 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 **Goal**: A read-only `check` that projects declared intent onto every tracked file and reports per-file drift (compliant / wrong-license / missing / uncovered / excluded).
 
-**Independent Test**: Author a config with a default + override rule, run `lichen check` against a repo of compliant and drifted files, and confirm each file is classified correctly and exit code reflects pass/fail.
+**Independent Test**: Author a config with a default + override rule, run `licet check` against a repo of compliant and drifted files, and confirm each file is classified correctly and exit code reflects pass/fail.
 
 ### Tests for User Story 1
 
-- [ ] T012 [P] [US1] Integration test in `tests/integration/us1_drift.rs` (using `assert_cmd` + `tests/fixtures/`): asserts each acceptance scenario — examples/*.rs drift shown declared-vs-actual, missing header → `missing_header`, no-rule file → `uncovered`, compliant repo → exit 0 (spec US1 scenarios 1–4); plus two equal-specificity rules matching one file surface a `RuleConflict` (warning kind `rule_conflict`, exit 1) rather than silently resolving (FR-022)
-- [ ] T013 [P] [US1] JSON contract test in `tests/integration/us1_report_schema.rs`: validates `lichen check --format json` output against contracts/report.schema.json (structure, `drift` enum, `summary.counts`)
+- [X] T012 [P] [US1] Integration test in `tests/integration/us1_drift.rs` (using `assert_cmd` + `tests/fixtures/`): asserts each acceptance scenario — examples/*.rs drift shown declared-vs-actual, missing header → `missing_header`, no-rule file → `uncovered`, compliant repo → exit 0 (spec US1 scenarios 1–4); plus two equal-specificity rules matching one file surface a `RuleConflict` (warning kind `rule_conflict`, exit 1) rather than silently resolving (FR-022)
+- [X] T013 [P] [US1] JSON contract test in `tests/integration/us1_report_schema.rs`: validates `licet check --format json` output against contracts/report.schema.json (structure, `drift` enum, `summary.counts`)
 - [ ] T014 [P] [US1] Snapshot tests in `tests/integration/us1_snapshots.rs` using `insta` for the human-readable drift report rendering
 
 ### Implementation for User Story 1
 
-- [ ] T015 [P] [US1] Implement rule matching, derived specificity (file > glob > ext > default) and declaration-order tie-break in `src/rules/mod.rs`, surfacing equal-specificity matches as `RuleConflict` (FR-002, FR-022)
-- [ ] T016 [P] [US1] Implement full-tree file enumeration in `src/walk/mod.rs` using `ignore` (gitignore-aware, parallel) for default tracked-file coverage (FR-013 full-scan path; subset flags added in US4)
-- [ ] T017 [P] [US1] Implement the built-in comment-style registry (read side) in `src/comment/mod.rs`, seeded to at least the REUSE-known extension/filename set, for recognizing existing headers (FR-011)
-- [ ] T018 [US1] Implement actual-license detection in `src/detect/mod.rs`: parse in-file `SPDX-License-Identifier`/`SPDX-FileCopyrightText` header blocks (with byte ranges + position-after context) and read out-of-band `REUSE.toml`/`.reuse/dep5`; either source satisfies intent (FR-003a, data-model §5) — depends on T017
-- [ ] T019 [US1] Implement the drift classification engine in `src/report/classify.rs`: join declared intent (T015) vs detected actual (T018) into `FileLicensingState` with `DriftClass`, comparing licenses semantically via `src/spdx` (FR-003, FR-004, FR-005) — depends on T015, T018
-- [ ] T020 [US1] Wire the `check` command in `src/cli/check.rs`: orchestrate walk → rules → detect → classify → report; honor `--explain <path>` (print winning rule + why); map results to exit 0/1 where Uncovered counts as failure and Excluded does not (FR-012, FR-012a) — depends on T016, T019
+- [X] T015 [P] [US1] Implement rule matching, derived specificity (file > glob > ext > default) and declaration-order tie-break in `src/rules/mod.rs`, surfacing equal-specificity matches as `RuleConflict` (FR-002, FR-022)
+- [X] T016 [P] [US1] Implement full-tree file enumeration in `src/walk/mod.rs` using `ignore` (gitignore-aware, parallel) for default tracked-file coverage (FR-013 full-scan path; subset flags added in US4)
+- [X] T017 [P] [US1] Implement the built-in comment-style registry (read side) in `src/comment/mod.rs`, seeded to at least the REUSE-known extension/filename set, for recognizing existing headers (FR-011)
+- [X] T018 [US1] Implement actual-license detection in `src/detect/mod.rs`: parse in-file `SPDX-License-Identifier`/`SPDX-FileCopyrightText` header blocks (with byte ranges + position-after context) and read out-of-band `REUSE.toml`/`.reuse/dep5`; either source satisfies intent (FR-003a, data-model §5) — depends on T017
+- [X] T019 [US1] Implement the drift classification engine in `src/report/classify.rs`: join declared intent (T015) vs detected actual (T018) into `FileLicensingState` with `DriftClass`, comparing licenses semantically via `src/spdx` (FR-003, FR-004, FR-005) — depends on T015, T018
+- [X] T020 [US1] Wire the `check` command in `src/cli/check.rs`: orchestrate walk → rules → detect → classify → report; honor `--explain <path>` (print winning rule + why); map results to exit 0/1 where Uncovered counts as failure and Excluded does not (FR-012, FR-012a) — depends on T016, T019
 
-**Checkpoint**: `lichen check` produces an authoritative per-file drift report with correct exit codes — MVP usable as a read-only audit.
+**Checkpoint**: `licet check` produces an authoritative per-file drift report with correct exit codes — MVP usable as a read-only audit.
 
 ---
 
@@ -84,23 +84,23 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 **Goal**: An `apply` that writes missing headers and corrects wrong ones — destructive on the license id by default, additive opt-in, copyright always preserved, with targeted-header selection.
 
-**Independent Test**: Take the drifted repo from US1, run `lichen apply`, confirm every covered file matches intent and a re-run `check` reports zero drift; verify additive vs destructive differ on a conflicting file and copyright lines survive.
+**Independent Test**: Take the drifted repo from US1, run `licet apply`, confirm every covered file matches intent and a re-run `check` reports zero drift; verify additive vs destructive differ on a conflicting file and copyright lines survive.
 
 ### Tests for User Story 2
 
-- [ ] T021 [P] [US2] Integration test in `tests/integration/us2_apply.rs`: destructive replaces wrong license then `check` → exit 0; additive keeps old + adds declared + contradiction warning; copyright lines unchanged after license-only replace; `--target-header 1` replaces the 2nd block (spec US2 scenarios 1–5, SC-002, SC-004); a file reachable via a symlink is annotated exactly once (T027, Edge Cases)
-- [ ] T022 [P] [US2] Integration test in `tests/integration/us2_partial.rs`: a write failure (e.g. read-only file) yields exit 3 and a report naming changed vs unchanged files (FR-021)
+- [X] T021 [P] [US2] Integration test in `tests/integration/us2_apply.rs`: destructive replaces wrong license then `check` → exit 0; additive keeps old + adds declared + contradiction warning; copyright lines unchanged after license-only replace; `--target-header 1` replaces the 2nd block (spec US2 scenarios 1–5, SC-002, SC-004); a file reachable via a symlink is annotated exactly once (T027, Edge Cases)
+- [X] T022 [P] [US2] Integration test in `tests/integration/us2_partial.rs`: a write failure (e.g. read-only file) yields exit 3 and a report naming changed vs unchanged files (FR-021)
 
 ### Implementation for User Story 2
 
-- [ ] T023 [P] [US2] Implement the comment-style header writer (write side) in `src/comment/mod.rs`: render an SPDX header block in a given `CommentStyle` (line-prefix and block forms) (FR-011)
-- [ ] T024 [P] [US2] Implement the first-line-aware inserter in `src/reconcile/insert.rs`: detect/skip shebang, encoding/XML decl, BOM and insert the header immediately after (FR-019, research.md §6)
-- [ ] T025 [US2] Implement the reconcile engine in `src/reconcile/mod.rs`: destructive license-id replacement (default), additive append with contradiction detection, copyright preservation by default, and targeted-header selection among multiple blocks (FR-006, FR-007, FR-008, FR-009, FR-020) — depends on T023, T024
-- [ ] T026 [US2] Implement offline license-text materialization in `src/reuse/inventory.rs`: write referenced-but-missing standard texts into `LICENSES/` from the embedded bundle and scaffold `LicenseRef-*` placeholders (FR-017) — depends on T007
-- [ ] T027 [US2] Add symlink-safety dedup in `src/walk/mod.rs` so a file reached via symlink is annotated only once (Edge Cases)
-- [ ] T028 [US2] Wire the `apply` command in `src/cli/apply.rs`: `--additive`, `--target-header <index>`, `--dry-run` (emit ReconciliationPlan without writing); partial-apply reporting with exit 3; populate `change`/`warnings` in the JSON report (FR-007, FR-008, FR-021) — depends on T025, T026
+- [X] T023 [P] [US2] Implement the comment-style header writer (write side) in `src/comment/mod.rs`: render an SPDX header block in a given `CommentStyle` (line-prefix and block forms) (FR-011)
+- [X] T024 [P] [US2] Implement the first-line-aware inserter in `src/reconcile/insert.rs`: detect/skip shebang, encoding/XML decl, BOM and insert the header immediately after (FR-019, research.md §6)
+- [X] T025 [US2] Implement the reconcile engine in `src/reconcile/mod.rs`: destructive license-id replacement (default), additive append with contradiction detection, copyright preservation by default, and targeted-header selection among multiple blocks (FR-006, FR-007, FR-008, FR-009, FR-020) — depends on T023, T024
+- [X] T026 [US2] Implement offline license-text materialization in `src/reuse/inventory.rs`: write referenced-but-missing standard texts into `LICENSES/` from the embedded bundle and scaffold `LicenseRef-*` placeholders (FR-017) — depends on T007
+- [X] T027 [US2] Add symlink-safety dedup in `src/walk/mod.rs` so a file reached via symlink is annotated only once (Edge Cases)
+- [X] T028 [US2] Wire the `apply` command in `src/cli/apply.rs`: `--additive`, `--target-header <index>`, `--dry-run` (emit ReconciliationPlan without writing); partial-apply reporting with exit 3; populate `change`/`warnings` in the JSON report (FR-007, FR-008, FR-021) — depends on T025, T026
 
-**Checkpoint**: `lichen apply` reconciles drift to zero, preserves copyright, and supports additive/destructive/targeted modes.
+**Checkpoint**: `licet apply` reconciles drift to zero, preserves copyright, and supports additive/destructive/targeted modes.
 
 ---
 
@@ -112,13 +112,13 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 ### Tests for User Story 3
 
-- [ ] T029 [P] [US3] Integration test in `tests/integration/us3_comment_styles.rs`: `ext = "pkl"` → `apply` writes C-style header on `hk.pkl`, next `check` recognizes it (round-trip); a `file =` association overrides an `ext =` one; known types keep built-in styles (spec US3 scenarios 1–4, SC-005)
+- [X] T029 [P] [US3] Integration test in `tests/integration/us3_comment_styles.rs`: `ext = "pkl"` → `apply` writes C-style header on `hk.pkl`, next `check` recognizes it (round-trip); a `file =` association overrides an `ext =` one; known types keep built-in styles (spec US3 scenarios 1–4, SC-005)
 
 ### Implementation for User Story 3
 
-- [ ] T030 [P] [US3] Extend `src/comment/mod.rs` resolution to overlay user-defined associations from config onto built-ins with precedence exact-filename → extension → built-in (FR-010, FR-011)
-- [ ] T031 [P] [US3] Support inline custom `CommentStyle` (`line_prefix`, `block_start`, `block_end`, `block_line_prefix`) and built-in style references by name in `src/config/schema.rs` + `src/comment/mod.rs` (config-schema.md `[[comment_style]]`)
-- [ ] T032 [US3] Route both detection (`src/detect`) and reconciliation (`src/reconcile`) through the association-aware resolver so configured styles persist across runs with no per-file flag — depends on T030, T031
+- [X] T030 [P] [US3] Extend `src/comment/mod.rs` resolution to overlay user-defined associations from config onto built-ins with precedence exact-filename → extension → built-in (FR-010, FR-011)
+- [X] T031 [P] [US3] Support inline custom `CommentStyle` (`line_prefix`, `block_start`, `block_end`, `block_line_prefix`) and built-in style references by name in `src/config/schema.rs` + `src/comment/mod.rs` (config-schema.md `[[comment_style]]`)
+- [X] T032 [US3] Route both detection (`src/detect`) and reconciliation (`src/reconcile`) through the association-aware resolver so configured styles persist across runs with no per-file flag — depends on T030, T031
 
 **Checkpoint**: Previously unknown file types become fully managed via one config entry and round-trip across runs.
 
@@ -132,15 +132,15 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 ### Tests for User Story 4
 
-- [ ] T033 [P] [US4] Integration test in `tests/integration/us4_subset.rs`: `--staged`, `--changed [<rev>]`, and `--files`/`--files-from`/`-` each evaluate only the supplied subset; drifted staged file → exit 1 naming the file; compliant staged set → exit 0 (spec US4 scenarios 1–4, FR-013, SC-009)
-- [ ] T034 [P] [US4] Perf gate in `tests/perf/scan_10k.rs` (release timing, e.g. `criterion` or a guarded `--release` assertion): a generated ~10,000-file fixture scans in <1s warm (SC-006)
+- [X] T033 [P] [US4] Integration test in `tests/integration/us4_subset.rs`: `--staged`, `--changed [<rev>]`, and `--files`/`--files-from`/`-` each evaluate only the supplied subset; drifted staged file → exit 1 naming the file; compliant staged set → exit 0 (spec US4 scenarios 1–4, FR-013, SC-009)
+- [X] T034 [P] [US4] Perf gate in `tests/perf/scan_10k.rs` (release timing, e.g. `criterion` or a guarded `--release` assertion): a generated ~10,000-file fixture scans in <1s warm (SC-006)
 
 ### Implementation for User Story 4
 
-- [ ] T035 [P] [US4] Implement git subset selection in `src/walk/mod.rs` using `gix`: tracked set, staged (index vs HEAD), and `--changed [<rev>]` diffs, plus `--files`/`--files-from`/stdin lists (FR-013, research.md §3)
-- [ ] T036 [P] [US4] Implement the warm-scan cache in `src/walk/cache.rs`: content-hash → classification persistence honoring `--no-cache`/`--cache <path>` (SC-006, research.md §10)
-- [ ] T037 [US4] Optimize header detection in `src/detect/mod.rs` to read only the file head via `memchr`/`bstr` (no full UTF-8 decode) for throughput (SC-006, research.md §10)
-- [ ] T038 [US4] Wire selection + cache flags into `src/cli/check.rs` and `src/cli/apply.rs` so both honor subset and cache modes while rule precedence still considers the full ruleset (FR-013, cli.md cross-command guarantees) — depends on T035, T036
+- [X] T035 [P] [US4] Implement git subset selection in `src/walk/mod.rs` using `gix`: tracked set, staged (index vs HEAD), and `--changed [<rev>]` diffs, plus `--files`/`--files-from`/stdin lists (FR-013, research.md §3)
+- [X] T036 [P] [US4] Implement the warm-scan cache in `src/walk/cache.rs`: content-hash → classification persistence honoring `--no-cache`/`--cache <path>` (SC-006, research.md §10)
+- [X] T037 [US4] Optimize header detection in `src/detect/mod.rs` to read only the file head via `memchr`/`bstr` (no full UTF-8 decode) for throughput (SC-006, research.md §10)
+- [X] T038 [US4] Wire selection + cache flags into `src/cli/check.rs` and `src/cli/apply.rs` so both honor subset and cache modes while rule precedence still considers the full ruleset (FR-013, cli.md cross-command guarantees) — depends on T035, T036
 
 **Checkpoint**: Enforcement is fast, subset-aware, and unobtrusive in hooks/CI with an unambiguous exit-code gate.
 
@@ -154,15 +154,15 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 ### Tests for User Story 5
 
-- [ ] T039 [P] [US5] Conformance test in `tests/conformance/reuse_compat.rs`: reconcile a fixture then assert the upstream `reuse lint` (or its spec checks) reports it compliant; gate-skip with a clear message if `reuse` is unavailable (SC-007)
-- [ ] T040 [P] [US5] Integration test in `tests/integration/us5_init.rs`: `init --from-reuse` against a fixture with `REUSE.toml` + headers produces a `license.toml` whose projection matches current licensing (spec US5 scenarios 1–3, SC-008)
+- [X] T039 [P] [US5] Conformance test in `tests/conformance/reuse_compat.rs`: reconcile a fixture then assert the upstream `reuse lint` (or its spec checks) reports it compliant; gate-skip with a clear message if `reuse` is unavailable (SC-007)
+- [X] T040 [P] [US5] Integration test in `tests/integration/us5_init.rs`: `init --from-reuse` against a fixture with `REUSE.toml` + headers produces a `license.toml` whose projection matches current licensing (spec US5 scenarios 1–3, SC-008)
 
 ### Implementation for User Story 5
 
-- [ ] T041 [P] [US5] Implement `LicenseTextInventory` reporting in `src/reuse/inventory.rs`: compute referenced/present/missing/bundled-available over `LICENSES/` and config (FR-014, FR-017) — extends T026
-- [ ] T042 [P] [US5] Implement out-of-band metadata writing for non-annotatable/binary files via `REUSE.toml` in `src/reuse/oob.rs`, reading `.reuse/dep5` for backward compatibility (FR-015, research.md §7)
-- [ ] T043 [US5] Implement the `init`/bootstrap command in `src/cli/init.rs`: inspect existing headers + `REUSE.toml`/`.reuse/dep5` and emit `license.toml` (`--output`), modifying no source files (FR-018) — depends on T018, T009
-- [ ] T044 [US5] Implement the `lint` command in `src/cli/lint.rs`: report REUSE posture (header presence, `LICENSES/` completeness, out-of-band coverage), list missing texts resolved from the offline bundle, `--allow-network` opt-in for ids absent from the bundle, exit 1 if non-compliant (FR-014, FR-017) — depends on T041, T042
+- [X] T041 [P] [US5] Implement `LicenseTextInventory` reporting in `src/reuse/inventory.rs`: compute referenced/present/missing/bundled-available over `LICENSES/` and config (FR-014, FR-017) — extends T026
+- [X] T042 [P] [US5] Implement out-of-band metadata writing for non-annotatable/binary files via `REUSE.toml` in `src/reuse/oob.rs`, reading `.reuse/dep5` for backward compatibility (FR-015, research.md §7)
+- [X] T043 [US5] Implement the `init`/bootstrap command in `src/cli/init.rs`: inspect existing headers + `REUSE.toml`/`.reuse/dep5` and emit `license.toml` (`--output`), modifying no source files (FR-018) — depends on T018, T009
+- [X] T044 [US5] Implement the `lint` command in `src/cli/lint.rs`: report REUSE posture (header presence, `LICENSES/` completeness, out-of-band coverage), list missing texts resolved from the offline bundle, `--allow-network` opt-in for ids absent from the bundle, exit 1 if non-compliant (FR-014, FR-017) — depends on T041, T042
 
 **Checkpoint**: Output is REUSE-compliant, `lint` reports posture offline, and existing projects migrate via bootstrap.
 
@@ -172,9 +172,9 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 **Purpose**: Improvements spanning multiple stories
 
-- [ ] T045 [P] Add `spdx`-canonicalization unit tests in `src/spdx/mod.rs` covering parenthesization, `WITH` exceptions, `+`, and operator reordering (SC-003 edge cases)
+- [X] T045 [P] Add `spdx`-canonicalization unit tests in `src/spdx/mod.rs` covering parenthesization, `WITH` exceptions, `+`, and operator reordering (SC-003 edge cases)
 - [ ] T046 [P] Generate shell completions (clap) and document the binary/config naming in `README.md`
-- [ ] T047 [P] Write `README.md` usage docs and run the quickstart.md scenarios end-to-end as a documented manual/CI validation pass
+- [X] T047 [P] Write `README.md` usage docs and run the quickstart.md scenarios end-to-end as a documented manual/CI validation pass
 - [ ] T048 [P] Add a `criterion` benchmark harness under `benches/` for scan throughput, tracking the SC-006 budget over time
 - [ ] T049 Cross-platform release wiring (Linux/macOS/Windows, x86-64 + arm64) producing a single self-contained binary
 - [ ] T050 Final determinism + offline-by-default audit: confirm identical inputs → identical classification/ordering/exit code and no network without `--allow-network` (FR-002, FR-017)
@@ -241,7 +241,7 @@ Task: "Built-in comment-style registry (read) in src/comment/mod.rs"
 
 1. Complete Phase 1: Setup
 2. Complete Phase 2: Foundational (CRITICAL — blocks all stories)
-3. Complete Phase 3: User Story 1 (`lichen check`)
+3. Complete Phase 3: User Story 1 (`licet check`)
 4. **STOP and VALIDATE**: drift report classifies the fixture correctly with the right exit codes
 5. Ship as a read-only audit MVP
 

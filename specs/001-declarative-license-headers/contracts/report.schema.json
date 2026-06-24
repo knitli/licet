@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.org/lichen/report.schema.json",
+  "$id": "https://example.org/licet/report.schema.json",
   "title": "Lichen Drift/Apply Report",
   "description": "Machine-readable output of `check` and `apply` (--format json). Mirrors the ReconciliationPlan/Report entity in data-model.md.",
   "type": "object",

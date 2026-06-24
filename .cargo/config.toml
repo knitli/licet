@@ -1,0 +1,6 @@
+[build]
+# Keep builds reproducible/hermetic by default.
+
+[alias]
+lint = "clippy --all-targets -- -D warnings"
+ci = "test --all"

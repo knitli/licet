@@ -1,6 +1,7 @@
 # CLI Contract
 
-The tool is a single binary (working name: `lichen`; final name TBD). Text I/O contract:
+The tool is a single binary named `licet` (Latin "it is permitted" — the root of
+"license"). Text I/O contract:
 arguments → stdout for results, errors/diagnostics → stderr. Every command accepts
 `--format human|json` (default `human`) and `--config <path>` (default `./license.toml`).
 
@@ -41,7 +42,7 @@ modified); `3` when some writes succeeded and others failed (FR-021).
 ## `check` — non-writing gate (FR-012, FR-012a, FR-013; US1, US4)
 
 ```
-lichen check [--staged | --changed [<rev>] | --files …] [--format …]
+licet check [--staged | --changed [<rev>] | --files …] [--format …]
 ```
 - Never modifies files.
 - Projects config onto the selected files; classifies each as
@@ -55,7 +56,7 @@ compliant staged set → exit `0` quickly; full CI scan → single authoritative
 ## `apply` — reconcile to intent (FR-006, FR-007, FR-008, FR-009; US2)
 
 ```
-lichen apply [--additive] [--target-header <index>] [--allow-dirty] [selection flags] [--dry-run]
+licet apply [--additive] [--target-header <index>] [--allow-dirty] [selection flags] [--dry-run]
 ```
 - **Default (no mode flag)**: **destructive on the license identifier** — replaces
   `SPDX-License-Identifier` to match config; **always preserves** copyright/authorship
@@ -86,7 +87,7 @@ survive a license-only replace; a specific header can be targeted.
 ## `init` / `bootstrap` — derive config from current state (FR-018; US5)
 
 ```
-lichen init [--from-reuse] [--output <path>]
+licet init [--from-reuse] [--output <path>]
 ```
 - Inspects existing headers and any `REUSE.toml`/`.reuse/dep5`, then generates an initial
   `license.toml` whose projection reproduces the repository's current licensing (SC-008).
@@ -95,7 +96,7 @@ lichen init [--from-reuse] [--output <path>]
 ## `lint` — REUSE-compatibility & license-text report (FR-014, FR-017; US5)
 
 ```
-lichen lint [--allow-network]
+licet lint [--allow-network]
 ```
 - Reports REUSE conformance posture: SPDX headers present, `LICENSES/` completeness,
   out-of-band coverage for non-annotatable files.
