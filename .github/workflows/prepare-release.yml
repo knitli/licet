@@ -1,0 +1,108 @@
+# Manual release-cutting front-end to release.yml.
+# Given a bump level (patch/minor/major), this resolves the next version from the current
+# Cargo.toml, verifies the tag is unused, bumps Cargo.toml + Cargo.lock, regenerates
+# CHANGELOG.md (git-cliff), commits all three as one `chore(release)` commit, then creates
+# and pushes the `vX.Y.Z` tag — which triggers release.yml. Because the bump lands *before*
+# the tag, release.yml's version-guard always passes.
+#
+# IMPORTANT: a tag pushed with the default GITHUB_TOKEN does NOT trigger another workflow
+# (GitHub blocks recursive runs), so release.yml would not start. To chain into it, add a
+# repo secret RELEASE_PAT (a fine-grained PAT with `contents: write`) — the push below uses
+# it when present. Without it, the tag is still created but you must run release.yml
+# manually (or re-push the tag) to publish.
+name: prepare-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: "Semver bump"
+        required: true
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+      dry_run:
+        description: "Do everything except commit/tag/push"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22
+        with:
+          fetch-depth: 0 # full history for git-cliff + tag listing
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Resolve next version and ensure tag is unused
+        id: v
+        run: |
+          cur="$(grep -m1 '^version[[:space:]]*=' Cargo.toml \
+            | sed -E 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/')"
+          core="${cur%%-*}"; core="${core%%+*}"   # drop any prerelease/build metadata
+          IFS=. read -r major minor patch <<< "$core"
+          case "${{ inputs.level }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+            *) echo "::error::unknown bump level '${{ inputs.level }}'"; exit 1 ;;
+          esac
+          version="$major.$minor.$patch"
+          tag="v$version"
+          echo "bumping $cur -> $version ($tag)"
+          git fetch --tags --quiet
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::tag $tag already exists — is the release already cut?"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@baf1a810e98b6a3001d0d7234864ed75a17c42fb
+
+      - name: Bump Cargo.toml and sync Cargo.lock
+        run: |
+          v="${{ steps.v.outputs.version }}"
+          # rewrite only the first (package) version key
+          sed -i -E '0,/^version[[:space:]]*=/{s/^(version[[:space:]]*=[[:space:]]*").*(")/\1'"$v"'\2/}' Cargo.toml
+          # update only the workspace member in the lock (no dependency churn)
+          cargo update --workspace
+          grep -qE "^version[[:space:]]*=[[:space:]]*\"$v\"" Cargo.toml \
+            || { echo "::error::Cargo.toml bump to $v failed"; exit 1; }
+
+      - name: Regenerate CHANGELOG.md
+        uses: orhun/git-cliff-action@4d0efd7c7a4b55484abf71c29a29712192adebdb
+        with:
+          config: cliff.toml
+          # --tag labels the unreleased commits as this version; full history, with header.
+          args: --tag ${{ steps.v.outputs.tag }}
+        env:
+          OUTPUT: CHANGELOG.md
+
+      - name: Sanity check (compiles, lock matches manifest)
+        run: cargo check --locked --all-targets
+
+      - name: Commit, tag, and push
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "chore(release): ${{ steps.v.outputs.tag }}"
+          git tag -a "${{ steps.v.outputs.tag }}" -m "${{ steps.v.outputs.tag }}"
+          git push origin HEAD
+          git push origin "${{ steps.v.outputs.tag }}"
+
+      - name: Dry-run summary (no changes pushed)
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "::notice::dry run — nothing committed or pushed. Pending changes:"
+          git --no-pager diff --stat
+          git --no-pager diff
