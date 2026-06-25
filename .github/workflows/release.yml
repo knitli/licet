@@ -13,7 +13,30 @@ permissions:
   contents: write
 
 jobs:
+  # Fail the whole release before anything is cut or published if the manifest version
+  # doesn't match the tag. crates.io versions are immutable, so we keep git as the single
+  # source of truth and refuse to "align" in CI (that would publish a crate whose source
+  # disagrees with the tagged commit, and break --locked). A mismatch means: bump
+  # Cargo.toml + Cargo.lock, delete the bad tag, and re-tag.
+  version-guard:
+    name: tag matches Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22
+      - name: Assert Cargo.toml version == tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(grep -m1 '^version[[:space:]]*=' Cargo.toml \
+            | sed -E 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/')"
+          echo "tag=$tag  manifest=$manifest"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag v$tag does not match Cargo.toml version $manifest — bump Cargo.toml + Cargo.lock and re-tag"
+            exit 1
+          fi
+          echo "ok: Cargo.toml version matches tag"
+
   create-release:
+    needs: version-guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22
