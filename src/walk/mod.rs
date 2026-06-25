@@ -106,6 +106,16 @@ pub fn enumerate(
     Ok(out)
 }
 
+/// Whether a repo-relative path is a VCS internal or our own cache and must be skipped.
+///
+/// Separators are normalized to `/` first so the `.git/` prefix check holds on Windows,
+/// where `Path::to_string_lossy` yields `\` (mirrors the exclude normalization in
+/// `enumerate`).
+fn is_vcs_internal(rel: &str) -> bool {
+    let s = rel.replace('\\', "/");
+    s.starts_with(".git/") || s == ".git" || s == ".licet-cache"
+}
+
 /// Full gitignore-aware parallel-capable walk; returns repo-relative file paths.
 fn walk_full_tree(root: &Path) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
@@ -124,8 +134,7 @@ fn walk_full_tree(root: &Path) -> Result<Vec<PathBuf>> {
             && let Ok(rel) = entry.path().strip_prefix(root)
         {
             // Skip VCS internals and our own cache.
-            let s = rel.to_string_lossy();
-            if s.starts_with(".git/") || s == ".git" || s == ".licet-cache" {
+            if is_vcs_internal(&rel.to_string_lossy()) {
                 continue;
             }
             paths.push(rel.to_path_buf());
@@ -192,5 +201,20 @@ mod tests {
         assert!(set.is_match("vendor/x.rs"));
         assert!(set.is_match("Cargo.lock"));
         assert!(!set.is_match("src/lib.rs"));
+    }
+
+    #[test]
+    fn vcs_internals_skipped_on_both_separators() {
+        // Forward slashes (Unix) and backslashes (Windows `to_string_lossy`) must both
+        // be recognized, else `.git/` contents leak into the scan on Windows.
+        assert!(is_vcs_internal(".git"));
+        assert!(is_vcs_internal(".git/config"));
+        assert!(is_vcs_internal(".git\\config"));
+        assert!(is_vcs_internal(".git\\objects\\ab\\cdef"));
+        assert!(is_vcs_internal(".licet-cache"));
+        // Ordinary tracked files must not be skipped.
+        assert!(!is_vcs_internal("src/lib.rs"));
+        assert!(!is_vcs_internal("src\\lib.rs"));
+        assert!(!is_vcs_internal(".gitignore"));
     }
 }
