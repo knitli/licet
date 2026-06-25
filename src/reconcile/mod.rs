@@ -148,17 +148,14 @@ fn add_license_to_block(block: &str, new_license: &str) -> String {
     for line in block.split_inclusive('\n') {
         let trimmed = line.trim_end_matches(['\n', '\r']);
         out_lines.push(trimmed.to_string());
-        if !inserted {
-            if let Some(pos) = trimmed.find("SPDX-License-Identifier:") {
-                // Mirror the existing line's comment prefix.
-                let prefix = &trimmed[..pos];
-                let terminator =
-                    extract_terminator(&trimmed[pos + "SPDX-License-Identifier:".len()..]);
-                out_lines.push(format!(
-                    "{prefix}SPDX-License-Identifier: {new_license}{terminator}"
-                ));
-                inserted = true;
-            }
+        if !inserted && let Some(pos) = trimmed.find("SPDX-License-Identifier:") {
+            // Mirror the existing line's comment prefix.
+            let prefix = &trimmed[..pos];
+            let terminator = extract_terminator(&trimmed[pos + "SPDX-License-Identifier:".len()..]);
+            out_lines.push(format!(
+                "{prefix}SPDX-License-Identifier: {new_license}{terminator}"
+            ));
+            inserted = true;
         }
     }
     let mut joined = out_lines.join(ending);
@@ -266,10 +263,11 @@ mod tests {
             None,
         );
         assert!(plan.wrote_header);
-        assert!(plan
-            .new_content
-            .unwrap()
-            .starts_with("// SPDX-License-Identifier: MIT"));
+        assert!(
+            plan.new_content
+                .unwrap()
+                .starts_with("// SPDX-License-Identifier: MIT")
+        );
     }
 
     #[test]

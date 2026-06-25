@@ -1,5 +1,6 @@
 //! CLI definition (clap) and command dispatch (contracts/cli.md).
 
+pub mod add_license;
 pub mod apply;
 pub mod check;
 pub mod init;
@@ -37,6 +38,9 @@ pub enum Command {
     Init(InitArgs),
     /// Report REUSE-compatibility posture and license-text completeness.
     Lint(LintArgs),
+    /// Materialize referenced license texts into LICENSES/ from the offline bundle.
+    #[command(visible_alias = "add")]
+    AddLicense(AddLicenseArgs),
     /// Generate a shell completion script (write to your shell's completion dir).
     Completions(CompletionsArgs),
 }
@@ -193,6 +197,25 @@ pub struct LintArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct AddLicenseArgs {
+    /// SPDX identifiers to materialize into LICENSES/ (omit when using --all).
+    #[arg(value_name = "SPDX-ID")]
+    pub ids: Vec<String>,
+    /// Materialize every referenced-but-missing license text.
+    #[arg(long)]
+    pub all: bool,
+    /// Permit fetching ids absent from the offline bundle (the hermetic binary never
+    /// reaches the network; accepted for parity with `lint`/FR-017).
+    #[arg(long)]
+    pub allow_network: bool,
+    /// Path to the declarative config (only read by --all to discover referenced ids).
+    #[arg(long, default_value = "license.toml")]
+    pub config: PathBuf,
+    #[arg(long, value_enum, default_value_t = Format::Human)]
+    pub format: Format,
+}
+
+#[derive(Debug, Args)]
 pub struct CompletionsArgs {
     /// Target shell (bash, zsh, fish, powershell, elvish).
     #[arg(value_enum)]
@@ -226,12 +249,14 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
         Some(Command::Apply(args)) => apply::run(args),
         Some(Command::Init(args)) => init::run(args),
         Some(Command::Lint(args)) => lint::run(args),
+        Some(Command::AddLicense(args)) => add_license::run(args),
         Some(Command::Completions(args)) => {
             print_completions(args.shell);
             Ok(ExitCode::Success)
         }
         None => Err(LicetError::Config(
-            "no subcommand given (try `licet check`, `apply`, `init`, `lint`, or `--version`)"
+            "no subcommand given (try `licet check`, `apply`, `init`, `lint`, `add-license`, or \
+             `--version`)"
                 .to_string(),
         )),
     }

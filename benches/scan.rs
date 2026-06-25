@@ -9,12 +9,12 @@
 
 use std::path::Path;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
 use licet::config::LicensingConfiguration;
 use licet::engine::Engine;
-use licet::walk::cache::{config_fingerprint, ScanCache};
 use licet::walk::Selection;
+use licet::walk::cache::{ScanCache, config_fingerprint};
 
 const CONFIG: &str = "[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n";
 

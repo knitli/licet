@@ -13,7 +13,7 @@ use crate::report::render::render_human;
 use crate::report::{Report, Warning};
 use crate::reuse::oob::OutOfBand;
 use crate::reuse::{self, inventory};
-use crate::walk::{discover_root, Selection};
+use crate::walk::{Selection, discover_root};
 
 pub fn run(args: ApplyArgs) -> Result<ExitCode> {
     let cwd = std::env::current_dir()?;
@@ -139,15 +139,15 @@ pub fn run(args: ApplyArgs) -> Result<ExitCode> {
     }
 
     // Materialize referenced-but-missing license texts (offline) unless dry-run.
-    if !args.dry_run {
-        if let Ok(res) = inventory::materialize(&root, &scan.referenced_ids) {
-            for id in res.still_missing {
-                warnings.push(Warning {
-                    kind: "missing_license_text".to_string(),
-                    path: None,
-                    message: format!("no offline text for `{id}` (use lint --allow-network)"),
-                });
-            }
+    if !args.dry_run
+        && let Ok(res) = inventory::materialize(&root, &scan.referenced_ids)
+    {
+        for id in res.still_missing {
+            warnings.push(Warning {
+                kind: "missing_license_text".to_string(),
+                path: None,
+                message: format!("no offline text for `{id}` (use lint --allow-network)"),
+            });
         }
     }
 

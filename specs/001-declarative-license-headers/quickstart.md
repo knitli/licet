@@ -119,6 +119,14 @@ Bootstrap config from an existing REUSE project:
 licet init --from-reuse    # derives license.toml from existing headers + REUSE.toml
 ```
 
+Materialize any referenced-but-missing license texts into `LICENSES/` offline, without
+touching source files (FR-029, the offline analog of `reuse download`):
+
+```bash
+licet add-license --all     # copy every missing referenced text from the embedded bundle
+licet add MIT               # or materialize specific identifiers (alias `add`)
+```
+
 Confirm REUSE-spec compliance of a reconciled repo (offline by default, FR-017):
 
 ```bash
@@ -127,8 +135,9 @@ reuse lint                  # the upstream REUSE tool still reports the repo com
 ```
 
 **Expect**: `init` produces a config whose projection reproduces current licensing
-(SC-008); `lint` resolves missing standard texts from the offline bundle; the upstream
-`reuse lint` passes (SC-007).
+(SC-008); `add-license` populates `LICENSES/` from the offline bundle without modifying
+sources (FR-029); `lint` resolves missing standard texts from the offline bundle; the
+upstream `reuse lint` passes (SC-007).
 
 ## Validation checklist (maps scenarios → success criteria)
 

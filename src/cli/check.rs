@@ -4,12 +4,12 @@ use std::path::Path;
 
 use super::{CheckArgs, Format};
 use crate::config::LicensingConfiguration;
-use crate::engine::{default_cache_path, Engine};
+use crate::engine::{Engine, default_cache_path};
 use crate::error::{ExitCode, LicetError, Result};
-use crate::report::render::{render_explain, render_human};
 use crate::report::Report;
-use crate::walk::cache::{config_fingerprint, ScanCache};
-use crate::walk::{discover_root, Selection};
+use crate::report::render::{render_explain, render_human};
+use crate::walk::cache::{ScanCache, config_fingerprint};
+use crate::walk::{Selection, discover_root};
 
 pub fn run(args: CheckArgs) -> Result<ExitCode> {
     let cwd = std::env::current_dir()?;

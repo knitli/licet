@@ -120,15 +120,15 @@ fn walk_full_tree(root: &Path) -> Result<Vec<PathBuf>> {
             Ok(e) => e,
             Err(_) => continue,
         };
-        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-            if let Ok(rel) = entry.path().strip_prefix(root) {
-                // Skip VCS internals and our own cache.
-                let s = rel.to_string_lossy();
-                if s.starts_with(".git/") || s == ".git" || s == ".licet-cache" {
-                    continue;
-                }
-                paths.push(rel.to_path_buf());
+        if entry.file_type().map(|t| t.is_file()).unwrap_or(false)
+            && let Ok(rel) = entry.path().strip_prefix(root)
+        {
+            // Skip VCS internals and our own cache.
+            let s = rel.to_string_lossy();
+            if s.starts_with(".git/") || s == ".git" || s == ".licet-cache" {
+                continue;
             }
+            paths.push(rel.to_path_buf());
         }
     }
     Ok(paths)

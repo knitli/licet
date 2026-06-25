@@ -49,10 +49,10 @@ fn present_texts(root: &Path) -> BTreeSet<String> {
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for e in entries.flatten() {
             let path = e.path();
-            if path.extension().map(|x| x == "txt").unwrap_or(false) {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    present.insert(stem.to_string());
-                }
+            if path.extension().map(|x| x == "txt").unwrap_or(false)
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                present.insert(stem.to_string());
             }
         }
     }

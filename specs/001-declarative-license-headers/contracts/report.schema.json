@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "version": { "type": "integer", "const": 1 },
-    "command": { "type": "string", "enum": ["check", "apply", "lint"] },
+    "command": { "type": "string", "enum": ["check", "apply", "lint", "add-license"] },
     "exit_code": { "type": "integer", "enum": [0, 1, 2, 3] },
     "summary": {
       "type": "object",

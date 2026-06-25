@@ -119,6 +119,7 @@ The tool produces output that conforms to the REUSE specification (SPDX identifi
 1. **Given** a repository the tool has reconciled, **When** a standard REUSE compliance check is run, **Then** it reports the repository as compliant.
 2. **Given** an existing project with a `REUSE.toml` and annotated files, **When** the maintainer runs the bootstrap step, **Then** an initial declarative configuration is generated that, when projected, matches the project's current licensing.
 3. **Given** a referenced license identifier whose text is not present, **When** the tool runs, **Then** it reports the missing license text (consistent with REUSE expectations) and can fetch or scaffold it.
+4. **Given** a referenced license identifier whose standard text is bundled but absent from `LICENSES/`, **When** the maintainer runs the materialize command (`licet add-license <id>`, or `--all` for every missing text), **Then** the text is written into `LICENSES/` from the embedded bundle without contacting the network and without modifying any source file or the configuration.
 
 ---
 
@@ -173,6 +174,7 @@ The tool produces output that conforms to the REUSE specification (SPDX identifi
 - **FR-026**: When writing or modifying a header the system MUST preserve the file's existing newline convention (LF vs CRLF) and MUST NOT introduce mixed line endings.
 - **FR-027**: The file-selection flags (`--staged`, `--changed`, `--files`/`--files-from`/stdin) MUST be mutually exclusive; supplying more than one is a usage error (exit 2).
 - **FR-028**: The system MUST report, in `--version` and in the `lint` output, the version of the embedded SPDX license list so operators can audit which license corpus a given binary carries.
+- **FR-029**: The system MUST provide a standalone command to materialize referenced-but-missing license texts into the `LICENSES/` tree from the embedded bundle, without modifying any source file or the configuration. The command MUST accept either an explicit set of SPDX identifiers or an "all referenced-but-missing" mode, MUST scaffold `LicenseRef-*` identifiers as empty placeholders, and MUST honor the same offline-by-default / explicit-network-opt-in policy as FR-017 (never reaching the network for a bundled identifier). This is the offline analog of REUSE's `download`: because licet embeds the SPDX corpus, the operation is a copy from the bundle rather than a network fetch. Because it writes only under `LICENSES/`, it does not require a clean working tree.
 
 ### Key Entities *(include if data involved)*
 

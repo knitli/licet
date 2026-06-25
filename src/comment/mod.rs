@@ -106,28 +106,28 @@ impl<'a> CommentResolver<'a> {
         let ext = path.extension().and_then(|e| e.to_str());
 
         // 1. Config association by exact filename.
-        if let Some(fname) = filename {
-            if let Some(style) = self.assoc_for_filename(fname) {
-                return Some(style);
-            }
+        if let Some(fname) = filename
+            && let Some(style) = self.assoc_for_filename(fname)
+        {
+            return Some(style);
         }
         // 2. Config association by extension.
-        if let Some(e) = ext {
-            if let Some(style) = self.assoc_for_ext(e) {
-                return Some(style);
-            }
+        if let Some(e) = ext
+            && let Some(style) = self.assoc_for_ext(e)
+        {
+            return Some(style);
         }
         // 3. Built-in by filename.
-        if let Some(fname) = filename {
-            if let Some(style) = builtin_for_filename(fname) {
-                return Some(style);
-            }
+        if let Some(fname) = filename
+            && let Some(style) = builtin_for_filename(fname)
+        {
+            return Some(style);
         }
         // 4. Built-in by extension.
-        if let Some(e) = ext {
-            if let Some(style) = builtin_for_ext(e) {
-                return Some(style);
-            }
+        if let Some(e) = ext
+            && let Some(style) = builtin_for_ext(e)
+        {
+            return Some(style);
         }
         None
     }

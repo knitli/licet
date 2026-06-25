@@ -9,6 +9,17 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+/// Lowercase-hex encode a digest's bytes, independent of the array type `finalize`
+/// returns (newer `sha2` yields a `hybrid-array` `Array` that does not impl `LowerHex`).
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
+}
+
 /// On-disk cache mapping `path → (content+config+version key, drift label)`.
 #[derive(Default)]
 pub struct ScanCache {
@@ -64,7 +75,7 @@ impl ScanCache {
     pub fn content_hash(bytes: &[u8]) -> String {
         let mut h = Sha256::new();
         h.update(bytes);
-        format!("{:x}", h.finalize())
+        hex(h.finalize().as_ref())
     }
 
     /// The full cache key folding content + config fingerprint + tool version.
@@ -75,7 +86,7 @@ impl ScanCache {
         h.update(self.config_fingerprint.as_bytes());
         h.update(b"\0");
         h.update(Self::tool_version().as_bytes());
-        format!("{:x}", h.finalize())
+        hex(h.finalize().as_ref())
     }
 
     /// Look up a cached drift label for a path+content, honoring the full key.
@@ -124,7 +135,7 @@ impl ScanCache {
 pub fn config_fingerprint(config_text: &str) -> String {
     let mut h = Sha256::new();
     h.update(config_text.as_bytes());
-    format!("{:x}", h.finalize())
+    hex(h.finalize().as_ref())
 }
 
 #[cfg(test)]

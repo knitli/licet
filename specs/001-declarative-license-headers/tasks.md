@@ -156,6 +156,7 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 - [X] T039 [P] [US5] Conformance test in `tests/conformance/reuse_compat.rs`: reconcile a fixture then assert the upstream `reuse lint` (or its spec checks) reports it compliant; gate-skip with a clear message if `reuse` is unavailable (SC-007)
 - [X] T040 [P] [US5] Integration test in `tests/integration/us5_init.rs`: `init --from-reuse` against a fixture with `REUSE.toml` + headers produces a `license.toml` whose projection matches current licensing (spec US5 scenarios 1–3, SC-008)
+- [X] T051 [P] [US5] Integration suite in `tests/us5_add_license.rs` for the `add-license` command: explicit-id and `--all` materialization, idempotent re-run, `LicenseRef` placeholder scaffold, unknown-id exit 1, flag-misuse exit 2, dirty-tree tolerance + source/config untouched, and JSON shape (FR-029)
 
 ### Implementation for User Story 5
 
@@ -163,6 +164,7 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 - [X] T042 [P] [US5] Implement out-of-band metadata writing for non-annotatable/binary files via `REUSE.toml` in `src/reuse/oob.rs`, reading `.reuse/dep5` for backward compatibility (FR-015, research.md §7)
 - [X] T043 [US5] Implement the `init`/bootstrap command in `src/cli/init.rs`: inspect existing headers + `REUSE.toml`/`.reuse/dep5` and emit `license.toml` (`--output`), modifying no source files (FR-018) — depends on T018, T009
 - [X] T044 [US5] Implement the `lint` command in `src/cli/lint.rs`: report REUSE posture (header presence, `LICENSES/` completeness, out-of-band coverage), list missing texts resolved from the offline bundle, `--allow-network` opt-in for ids absent from the bundle, exit 1 if non-compliant (FR-014, FR-017) — depends on T041, T042
+- [X] T052 [US5] Implement the `add-license` command (alias `add`) in `src/cli/add_license.rs`: materialize referenced license texts into `LICENSES/` from the offline bundle standalone — explicit ids or `--all` (mutually exclusive), `LicenseRef-*` placeholder scaffold, never touching source files/config or requiring a clean tree; exit 0/1/2 per cli.md. Wire into `src/cli/mod.rs`; repoint the `lint` missing-text hint from `apply` to `add-license` (FR-017, FR-029) — depends on T041
 
 **Checkpoint**: Output is REUSE-compliant, `lint` reports posture offline, and existing projects migrate via bootstrap.
 

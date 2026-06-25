@@ -7,7 +7,7 @@ use crate::error::{ExitCode, Result};
 use crate::reuse::inventory::LicenseTextInventory;
 use crate::spdx;
 use crate::walk::cache::ScanCache;
-use crate::walk::{discover_root, Selection};
+use crate::walk::{Selection, discover_root};
 
 pub fn run(args: LintArgs) -> Result<ExitCode> {
     let cwd = std::env::current_dir()?;
@@ -55,7 +55,7 @@ pub fn run(args: LintArgs) -> Result<ExitCode> {
                 println!("  missing license texts:");
                 for id in &inv.missing {
                     let hint = if spdx::bundled_text(id).is_some() {
-                        "available offline (run `licet apply`)"
+                        "available offline (run `licet add-license`)"
                     } else if spdx::is_license_ref(id) {
                         "custom LicenseRef — scaffold a placeholder"
                     } else if args.allow_network {

@@ -9,8 +9,8 @@ arguments → stdout for results, errors/diagnostics → stderr. Every command a
 
 | Code | Meaning | Used by |
 |------|---------|---------|
-| `0` | Success / fully compliant — no drift, no uncovered files | `check`, `apply`, `lint` |
-| `1` | Drift or violations found (non-compliant) | `check`, `lint` |
+| `0` | Success / fully compliant — no drift, no uncovered files | `check`, `apply`, `lint`, `add-license` |
+| `1` | Drift or violations found (non-compliant) | `check`, `lint`, `add-license` |
 | `2` | Usage / configuration error (bad flags, invalid `license.toml`) | all |
 | `3` | Partial apply — some files changed, some failed (FR-021) | `apply` |
 
@@ -22,6 +22,11 @@ RuleConflict, missing license text} to exit `1`. `Uncovered` (FR-012a) and `Unre
 `1` when files remain non-compliant that `apply` cannot fix by writing — specifically
 **Uncovered** (needs a config edit, not a header) and **Unreadable** (non-UTF-8, never
 modified); `3` when some writes succeeded and others failed (FR-021).
+
+`add-license` exit semantics: `0` when every targeted text is present in `LICENSES/`
+afterward; `1` when one or more requested/referenced texts could not be supplied (absent
+from the bundle and not a `LicenseRef-*`, with `--allow-network` not given), naming the
+identifier; `2` on flag misuse (neither identifiers nor `--all` given, or both).
 
 ## Global flags
 
@@ -105,6 +110,31 @@ licet lint [--allow-network]
 - Reports the embedded **SPDX license-list version** so the compliance posture is auditable
   (FR-028).
 - Exit `1` if the repository would not pass a REUSE-spec compliance check.
+
+## `add-license` (alias `add`) — materialize license texts offline (FR-017, FR-029; US5)
+
+```
+licet add-license [<SPDX-ID> …] [--all] [--allow-network] [--format …]
+licet add <SPDX-ID> …
+```
+- Copies referenced license texts into `LICENSES/` from the **embedded bundle** — the
+  offline analog of REUSE's `download`. Because the SPDX corpus is embedded, this is a copy
+  from the bundle, never a network fetch for a bundled identifier (offline-guard invariant).
+- `<SPDX-ID> …`: materialize exactly these identifiers. `--all`: materialize every
+  identifier referenced by the config and existing headers that is **missing** from
+  `LICENSES/` (the parallel of `reuse download --all`). Supplying neither — and not
+  `--all` — is a usage error → exit `2`; supplying both is also exit `2`.
+- `LicenseRef-*` identifiers are scaffolded as empty placeholder texts for the maintainer to
+  fill in (FR-017); they are never fetched.
+- `--allow-network`: permits fetching identifiers absent from the bundle; without it, an
+  unbundled non-`LicenseRef` identifier cannot be supplied and the run exits `1`, naming it
+  (consistent with `lint`).
+- Writes **only** under `LICENSES/`: it never modifies source files or `license.toml`, and
+  therefore — unlike `apply` — does **not** require a clean working tree. (`apply` still
+  materializes texts as a side-effect of annotating; `add-license` exposes that
+  materialization standalone, without touching headers.)
+- `--format json` emits a report listing the referenced/present/missing/materialized texts
+  and the embedded SPDX list version, reusing the `license_texts` shape of `lint`.
 
 ## Behavior guarantees (cross-command)
 

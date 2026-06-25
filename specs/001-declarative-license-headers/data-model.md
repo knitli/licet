@@ -154,13 +154,13 @@ Compliant      ──(file edited off-intent)──▶ WrongLicense | MissingHea
 
 ## 7. LicenseTextInventory
 
-Tracks referenced identifiers vs present texts in `LICENSES/` (FR-014, FR-017).
+Tracks referenced identifiers vs present texts in `LICENSES/` (FR-014, FR-017, FR-029).
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `referenced` | set of SPDX id | Every identifier used anywhere in the repo/config. |
 | `present` | set of SPDX id | Texts found under `LICENSES/`. |
-| `missing` | derived set | `referenced − present` → reported; standard ids materializable from the embedded bundle offline; `LicenseRef-*` scaffolded as placeholders. |
+| `missing` | derived set | `referenced − present` → reported; standard ids materializable from the embedded bundle offline; `LicenseRef-*` scaffolded as placeholders. The `add-license` command (FR-029) materializes this set (or an explicit subset) into `LICENSES/`. |
 | `bundled` | set of SPDX id | Identifiers whose text is embedded in the binary. |
 
 ---
@@ -196,6 +196,6 @@ The computed result of a `check` (read-only) or `apply` (writing) run.
 | CommentStyle(Association) | FR-010, FR-011 |
 | ActualLicenseState, HeaderBlock | FR-003a, FR-005, FR-008, FR-019, FR-025, FR-026 |
 | FileLicensingState, DriftClass | FR-003, FR-004, FR-012a, FR-025 |
-| LicenseTextInventory | FR-014, FR-015, FR-017, FR-028 |
+| LicenseTextInventory | FR-014, FR-015, FR-017, FR-028, FR-029 |
 | ReconciliationPlan/Report, FileChange | FR-006, FR-007, FR-012, FR-013, FR-020, FR-021, FR-024, SC-009, SC-010 |
 | Scan cache (fingerprint key) | FR-023, SC-011 |

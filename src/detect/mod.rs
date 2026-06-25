@@ -87,10 +87,10 @@ pub fn candidate_licenses(state: &ActualLicenseState) -> Vec<String> {
         .iter()
         .flat_map(|h| h.license_ids.clone())
         .collect();
-    if let Some(o) = &state.out_of_band {
-        if let Some(l) = &o.license {
-            out.push(l.clone());
-        }
+    if let Some(o) = &state.out_of_band
+        && let Some(l) = &o.license
+    {
+        out.push(l.clone());
     }
     out
 }

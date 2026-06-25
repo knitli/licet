@@ -12,7 +12,7 @@ use crate::config::LicensingConfiguration;
 use crate::detect;
 use crate::error::{ExitCode, Result};
 use crate::reuse::oob::OutOfBand;
-use crate::walk::{self, discover_root, Selection};
+use crate::walk::{self, Selection, discover_root};
 
 pub fn run(args: InitArgs) -> Result<ExitCode> {
     let cwd = std::env::current_dir()?;
@@ -54,10 +54,10 @@ pub fn run(args: InitArgs) -> Result<ExitCode> {
     // emit an `ext` rule (prefers ext/glob over per-file rules — SC-008).
     let mut rules: Vec<(String, String)> = Vec::new();
     for (ext, licenses) in &by_ext {
-        if let Some((lic, _)) = licenses.iter().max_by_key(|(_, n)| **n) {
-            if Some(lic) != default_license.as_ref() {
-                rules.push((ext.clone(), lic.clone()));
-            }
+        if let Some((lic, _)) = licenses.iter().max_by_key(|(_, n)| **n)
+            && Some(lic) != default_license.as_ref()
+        {
+            rules.push((ext.clone(), lic.clone()));
         }
     }
 

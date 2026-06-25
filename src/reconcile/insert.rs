@@ -108,11 +108,12 @@ mod tests {
     fn inserts_after_shebang() {
         let out = insert_header("#!/bin/sh\ncode\n", "# SPDX-License-Identifier: MIT\n");
         assert!(out.starts_with("#!/bin/sh\n"));
-        assert!(out
-            .lines()
-            .nth(1)
-            .unwrap()
-            .contains("SPDX-License-Identifier"));
+        assert!(
+            out.lines()
+                .nth(1)
+                .unwrap()
+                .contains("SPDX-License-Identifier")
+        );
     }
 
     #[test]
@@ -128,10 +129,11 @@ mod tests {
             "<!-- SPDX-License-Identifier: MIT -->\n",
         );
         assert!(out.starts_with("<?xml"));
-        assert!(out
-            .lines()
-            .nth(1)
-            .unwrap()
-            .contains("SPDX-License-Identifier"));
+        assert!(
+            out.lines()
+                .nth(1)
+                .unwrap()
+                .contains("SPDX-License-Identifier")
+        );
     }
 }

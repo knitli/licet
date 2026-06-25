@@ -58,6 +58,7 @@ for the full schema.
 | `licet apply` | Reconcile files to declared intent (destructive by default). |
 | `licet init`  | Derive a `license.toml` from current repository state. |
 | `licet lint`  | Report REUSE-compatibility posture & license-text completeness. |
+| `licet add-license` (alias `add`) | Materialize license texts into `LICENSES/` from the offline bundle. |
 
 ### `check` — the gate
 
@@ -94,6 +95,21 @@ licet init --from-reuse     # bootstrap license.toml from existing headers + REU
 licet lint                  # LICENSES/ completeness, missing texts, SPDX list version
 licet --version             # tool version + embedded SPDX license-list version
 ```
+
+### `add-license` — populate `LICENSES/` offline
+
+The offline analog of `reuse download`: because the SPDX corpus is embedded, this copies
+texts straight out of the binary — it never touches the network.
+
+```bash
+licet add-license MIT Apache-2.0   # materialize specific texts (alias: `licet add MIT`)
+licet add-license --all            # every referenced-but-missing text
+```
+
+Unlike `apply`, it writes **only** under `LICENSES/` — it never edits source files or
+`license.toml`, so it does not require a clean working tree. `LicenseRef-*` ids are
+scaffolded as placeholders. Exit `0` on success, `1` if a requested text can't be supplied
+offline, `2` on flag misuse (neither ids nor `--all`, or both).
 
 ### Shell completions
 
