@@ -30,7 +30,7 @@ pub enum Selection {
 pub fn discover_root(start: &Path) -> PathBuf {
     match gix::discover(start) {
         Ok(repo) => repo
-            .work_dir()
+            .workdir()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| start.to_path_buf()),
         Err(_) => start.to_path_buf(),
