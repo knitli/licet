@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
+use ignore::overrides::OverrideBuilder;
 
 use crate::error::{LicetError, Result};
 
@@ -106,24 +107,34 @@ pub fn enumerate(
     Ok(out)
 }
 
-/// Whether a repo-relative path is a VCS internal or our own cache and must be skipped.
+/// VCS internals and our own cache, excluded from the walk as `ignore` overrides.
 ///
-/// Separators are normalized to `/` first so the `.git/` prefix check holds on Windows,
-/// where `Path::to_string_lossy` yields `\` (mirrors the exclude normalization in
-/// `enumerate`).
-fn is_vcs_internal(rel: &str) -> bool {
-    let s = rel.replace('\\', "/");
-    s.starts_with(".git/") || s == ".git" || s == ".licet-cache"
-}
+/// We set `hidden(false)` so dotfiles (`.github/`, `.gitignore`, …) are scanned for
+/// headers, which also un-skips `.git/`. Expressing the skips as negated override globs
+/// lets `ignore` prune `.git/` at the directory level (it never descends) and matches on
+/// the crate's own normalized paths — so there is no manual separator handling to get
+/// wrong on Windows. The globs MUST be `!`-negated: an un-negated override glob flips the
+/// matcher into whitelist mode and would ignore everything else.
+const ALWAYS_SKIP: &[&str] = &["!.git/", "!.licet-cache"];
 
 /// Full gitignore-aware parallel-capable walk; returns repo-relative file paths.
 fn walk_full_tree(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut ob = OverrideBuilder::new(root);
+    for glob in ALWAYS_SKIP {
+        ob.add(glob)
+            .expect("valid built-in skip override; ALWAYS_SKIP is a const");
+    }
+    let overrides = ob
+        .build()
+        .expect("valid built-in skip overrides; ALWAYS_SKIP is a const");
+
     let mut paths = Vec::new();
     let walker = WalkBuilder::new(root)
         .hidden(false)
         .git_ignore(true)
         .git_global(true)
         .parents(true)
+        .overrides(overrides)
         .build();
     for entry in walker {
         let entry = match entry {
@@ -133,10 +144,6 @@ fn walk_full_tree(root: &Path) -> Result<Vec<PathBuf>> {
         if entry.file_type().map(|t| t.is_file()).unwrap_or(false)
             && let Ok(rel) = entry.path().strip_prefix(root)
         {
-            // Skip VCS internals and our own cache.
-            if is_vcs_internal(&rel.to_string_lossy()) {
-                continue;
-            }
             paths.push(rel.to_path_buf());
         }
     }
@@ -204,17 +211,34 @@ mod tests {
     }
 
     #[test]
-    fn vcs_internals_skipped_on_both_separators() {
-        // Forward slashes (Unix) and backslashes (Windows `to_string_lossy`) must both
-        // be recognized, else `.git/` contents leak into the scan on Windows.
-        assert!(is_vcs_internal(".git"));
-        assert!(is_vcs_internal(".git/config"));
-        assert!(is_vcs_internal(".git\\config"));
-        assert!(is_vcs_internal(".git\\objects\\ab\\cdef"));
-        assert!(is_vcs_internal(".licet-cache"));
-        // Ordinary tracked files must not be skipped.
-        assert!(!is_vcs_internal("src/lib.rs"));
-        assert!(!is_vcs_internal("src\\lib.rs"));
-        assert!(!is_vcs_internal(".gitignore"));
+    fn walk_skips_git_internals_and_cache_keeps_dotfiles() {
+        // `hidden(false)` un-skips `.git/`; the override must prune it (and `.licet-cache`)
+        // while still scanning ordinary dotfiles like `.gitignore`. Regression guard for
+        // the Windows leak where a manual `.git/` string filter missed `\`-separated paths.
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        for (rel, body) in [
+            (".git/config", "x"),
+            (".git/objects/ab/cdef", "x"),
+            (".licet-cache", "x"),
+            (".gitignore", "target\n"),
+            ("src/lib.rs", "fn f() {}\n"),
+        ] {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, body).unwrap();
+        }
+
+        let mut found: Vec<String> = walk_full_tree(root)
+            .unwrap()
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect();
+        found.sort();
+
+        assert_eq!(
+            found,
+            vec![".gitignore".to_string(), "src/lib.rs".to_string()]
+        );
     }
 }
