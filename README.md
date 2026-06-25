@@ -18,7 +18,7 @@ fast enough for commit hooks and CI, and its output stays compatible with the up
 cargo build --release    # → target/release/licet
 ```
 
-Requirements: Rust 1.83+. A git repository (default coverage = tracked files).
+Requirements: Rust 1.89+. A git repository (default coverage = tracked files).
 
 ## Configure: declare intent once
 
