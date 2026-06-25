@@ -5,6 +5,11 @@ edition = "2024"
 rust-version = "1.89"
 description = "Declarative, SPDX/REUSE-compatible license-header management"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/knitli/licet"
+homepage = "https://github.com/knitli/licet"
+readme = "README.md"
+keywords = ["license", "spdx", "reuse", "copyright", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [lib]
 name = "licet"
