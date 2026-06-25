@@ -32,6 +32,7 @@ permissions:
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    environment: release
     steps:
       - uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22
         with:
