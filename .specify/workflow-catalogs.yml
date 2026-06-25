@@ -1,6 +1,0 @@
-catalogs:
-- name: catalog-1
-  url: https://raw.githubusercontent.com/github/spec-kit/main/workflows/catalog.community.json
-  priority: 1
-  install_allowed: true
-  description: ''

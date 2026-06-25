@@ -13,6 +13,7 @@ release/
 .DS_Store
 Thumbs.db
 *.tmp
+:ZoneIdentifier
 
 # Logs / env
 *.log
@@ -20,3 +21,9 @@ Thumbs.db
 
 # licet scan cache (default location)
 .licet-cache
+
+.specify/
+!.specify/memory/
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
