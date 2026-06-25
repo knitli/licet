@@ -24,27 +24,27 @@ bstr = "1.12.2"
 clap = { version = "4.6.1", features = ["derive"] }
 clap_complete = "4.6.5"
 gix = {
-  version = "0.66",
+  version = "0.85.0",
   default-features = false,
   features = ["dirwalk", "max-performance-safe", "revision", "status"]
 }
-globset = "0.4"
-ignore = "0.4"
-memchr = "2"
-rayon = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
-spdx = "0.10"
-thiserror = "2"
-toml = "0.8"
+globset = "0.4.18"
+ignore = "0.4.26"
+memchr = "2.8.2"
+rayon = "1.12.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.104"
+sha2 = "0.11.0"
+spdx = "0.13.4"
+thiserror = "2.0.18"
+toml = "1.1.2+spec-1.1.0"
 
 [dev-dependencies]
-assert_cmd = "2"
-criterion = "0.5"
-insta = "1"
-predicates = "3"
-tempfile = "3"
+assert_cmd = "2.2.2"
+criterion = "0.8.2"
+insta = "1.48.0"
+predicates = "3.1.4"
+tempfile = "3.27.0"
 
 # clippy lints: deny warnings in CI via `cargo clippy -- -D warnings`
 [lints.clippy]

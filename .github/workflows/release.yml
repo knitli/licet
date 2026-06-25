@@ -16,12 +16,12 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22
         with:
           fetch-depth: 0 # full history so git-cliff can build the changelog
 
       - name: Generate release notes (git-cliff)
-        uses: orhun/git-cliff-action@v4
+        uses: orhun/git-cliff-action@4d0efd7c7a4b55484abf71c29a29712192adebdb
         id: cliff
         with:
           config: cliff.toml
@@ -30,7 +30,7 @@ jobs:
           OUTPUT: RELEASE_NOTES.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b
         with:
           body_path: RELEASE_NOTES.md
           draft: false
@@ -57,13 +57,13 @@ jobs:
             os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@b9e0990d219a03df7633c93f6f005a8fecbcab22
 
       # Builds `licet` for the target (installing the toolchain / cross-linker as
       # needed), archives it as tar.gz (zip on Windows), emits a .sha256, and uploads
       # everything to the release created above.
       - name: Build and upload binary
-        uses: taiki-e/upload-rust-binary-action@v1
+        uses: taiki-e/upload-rust-binary-action@dd5bbe0528f32a483b749797277ab6ef83a29999
         with:
           bin: licet
           target: ${{ matrix.target }}

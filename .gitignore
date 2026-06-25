@@ -6,14 +6,18 @@ release/
 *.rlib
 *.prof*
 
+# docs
+.astro/
+.wrangler/
+dist/
+
 # Editors / OS
 .idea/
-.vscode/
 *.swp
 .DS_Store
 Thumbs.db
 *.tmp
-:ZoneIdentifier
+*:Zone.Identifier
 
 # Logs / env
 *.log
@@ -22,8 +26,14 @@ Thumbs.db
 # licet scan cache (default location)
 .licet-cache
 
+# Speckit and vscode
 .specify/
 !.specify/memory/
 .vscode/
 !.vscode/settings.json
 !.vscode/extensions.json
+
+# local dev configs
+*.local.*
+
+.claude/worktrees

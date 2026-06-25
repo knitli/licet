@@ -1,3 +1,14 @@
+[tools]
+python = "3.13.14"
+rust = "nightly"
+git-cliff = "latest"
+cargo-release = "latest"
+# 'cargo:licet' = latest
+
+[tools.'pipx:reuse']
+version = "latest"
+depends = "python"
+
 [shell_alias]
 claude = "ECC_GATEGUARD=off COLORTERM=1 claude"
 
