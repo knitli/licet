@@ -1,0 +1,11 @@
+---
+source: tests/us1_snapshots.rs
+expression: stdout
+---
+wrong_license  b_wrong.py (declared `MIT` vs actual `GPL-3.0-only`)
+missing_header c_missing.py (declared `MIT`, no header found)
+wrong_license  d_wrong.rs (declared `Apache-2.0` vs actual `MIT`) [ext=rs]
+missing_header license.toml (declared `MIT`, no header found)
+
+Summary: 1 compliant, 2 wrong-license, 2 missing, 0 uncovered, 0 excluded, 0 unreadable
+Result: FAIL

@@ -1,0 +1,13 @@
+# cargo-release configuration (`cargo release <level>`).
+# Drives version bump → changelog regen → commit → tag → push. The pushed `vX.Y.Z`
+# tag triggers .github/workflows/release.yml, which builds and uploads the binaries.
+publish = false                                   # not a crates.io package
+push = true
+tag-name = "v{{version}}"
+tag-message = "licet {{version}}"
+pre-release-commit-message = "chore(release): v{{version}}"
+sign-commit = false
+sign-tag = false
+
+# Regenerate the full changelog from Conventional Commits for the new version.
+pre-release-hook = ["git-cliff", "--tag", "v{{version}}", "--output", "CHANGELOG.md"]

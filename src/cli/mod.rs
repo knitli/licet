@@ -7,7 +7,8 @@ pub mod lint;
 
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 
 use crate::error::{ExitCode, LicetError, Result};
 use crate::spdx;
@@ -36,6 +37,8 @@ pub enum Command {
     Init(InitArgs),
     /// Report REUSE-compatibility posture and license-text completeness.
     Lint(LintArgs),
+    /// Generate a shell completion script (write to your shell's completion dir).
+    Completions(CompletionsArgs),
 }
 
 /// Output format.
@@ -189,6 +192,20 @@ pub struct LintArgs {
     pub allow_network: bool,
 }
 
+#[derive(Debug, Args)]
+pub struct CompletionsArgs {
+    /// Target shell (bash, zsh, fish, powershell, elvish).
+    #[arg(value_enum)]
+    pub shell: Shell,
+}
+
+/// Print a completion script for `shell` to stdout.
+pub fn print_completions(shell: Shell) {
+    let mut cmd = Cli::command();
+    let name = cmd.get_name().to_string();
+    clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+}
+
 /// Render the `--version` line including the embedded SPDX list version (FR-028).
 pub fn version_string() -> String {
     format!(
@@ -209,6 +226,10 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
         Some(Command::Apply(args)) => apply::run(args),
         Some(Command::Init(args)) => init::run(args),
         Some(Command::Lint(args)) => lint::run(args),
+        Some(Command::Completions(args)) => {
+            print_completions(args.shell);
+            Ok(ExitCode::Success)
+        }
         None => Err(LicetError::Config(
             "no subcommand given (try `licet check`, `apply`, `init`, `lint`, or `--version`)"
                 .to_string(),

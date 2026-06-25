@@ -1,0 +1,9 @@
+---
+source: tests/us1_snapshots.rs
+expression: stdout
+---
+uncovered      license.toml
+uncovered      orphan.py
+
+Summary: 0 compliant, 0 wrong-license, 0 missing, 2 uncovered, 0 excluded, 0 unreadable
+Result: FAIL

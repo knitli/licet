@@ -33,7 +33,7 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 - [X] T001 Create the Cargo project skeleton: `Cargo.toml` (crate `licet`, `[lib]` + `[[bin]]`), `src/lib.rs`, `src/main.rs`, and empty module dirs `src/{cli,config,rules,walk,detect,comment,spdx,reconcile,report,reuse}/` each with a `mod.rs`, per plan.md "Source Code"
 - [X] T002 Declare dependencies in `Cargo.toml`: `clap` (derive), `ignore`, `rayon`, `spdx`, `serde`, `toml`, `globset`, `gix`, `memchr`, `bstr`, `anyhow`, `thiserror`, and dev-deps `insta`, `assert_cmd`, `predicates`, `tempfile`, `criterion`
 - [X] T003 [P] Configure `rustfmt.toml`, `clippy` lints (deny warnings) via `Cargo.toml`/`.cargo/config.toml`, and an `mise.toml`/CI task running `cargo fmt --check && cargo clippy && cargo test`
-- [ ] T004 [P] Create test fixture scaffolding under `tests/fixtures/` with placeholder sample repos: `compliant/`, `wrong-license/`, `missing/`, `uncovered/`, `excluded/`, plus a `README.md` describing fixture conventions
+- [~] T004 [P] ~~Create test fixture scaffolding under `tests/fixtures/`~~ **Superseded**: fixtures are built programmatically per-test by `tests/common/mod.rs` (`Fixture` spins up an isolated git repo with the exact files/config each scenario needs). Static on-disk sample repos would duplicate this with worse isolation, so they were intentionally not added.
 
 ---
 
@@ -65,7 +65,7 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 - [X] T012 [P] [US1] Integration test in `tests/integration/us1_drift.rs` (using `assert_cmd` + `tests/fixtures/`): asserts each acceptance scenario — examples/*.rs drift shown declared-vs-actual, missing header → `missing_header`, no-rule file → `uncovered`, compliant repo → exit 0 (spec US1 scenarios 1–4); plus two equal-specificity rules matching one file surface a `RuleConflict` (warning kind `rule_conflict`, exit 1) rather than silently resolving (FR-022)
 - [X] T013 [P] [US1] JSON contract test in `tests/integration/us1_report_schema.rs`: validates `licet check --format json` output against contracts/report.schema.json (structure, `drift` enum, `summary.counts`)
-- [ ] T014 [P] [US1] Snapshot tests in `tests/integration/us1_snapshots.rs` using `insta` for the human-readable drift report rendering
+- [X] T014 [P] [US1] Snapshot tests in `tests/us1_snapshots.rs` using `insta` for the human-readable drift report rendering (drift / uncovered / compliant renderings pinned; snapshots under `tests/snapshots/`)
 
 ### Implementation for User Story 1
 
@@ -173,11 +173,11 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 **Purpose**: Improvements spanning multiple stories
 
 - [X] T045 [P] Add `spdx`-canonicalization unit tests in `src/spdx/mod.rs` covering parenthesization, `WITH` exceptions, `+`, and operator reordering (SC-003 edge cases)
-- [ ] T046 [P] Generate shell completions (clap) and document the binary/config naming in `README.md`
+- [X] T046 [P] Generate shell completions (clap) and document the binary/config naming in `README.md` (`licet completions <shell>` via `clap_complete`; bash/zsh/fish/powershell/elvish; README "Naming" section added)
 - [X] T047 [P] Write `README.md` usage docs and run the quickstart.md scenarios end-to-end as a documented manual/CI validation pass
-- [ ] T048 [P] Add a `criterion` benchmark harness under `benches/` for scan throughput, tracking the SC-006 budget over time
-- [ ] T049 Cross-platform release wiring (Linux/macOS/Windows, x86-64 + arm64) producing a single self-contained binary
-- [ ] T050 Final determinism + offline-by-default audit: confirm identical inputs → identical classification/ordering/exit code and no network without `--allow-network` (FR-002, FR-017)
+- [X] T048 [P] Add a `criterion` benchmark harness under `benches/` for scan throughput, tracking the SC-006 budget over time (`benches/scan.rs`, cold + warm cache groups; ~120k files/s observed)
+- [X] T049 Cross-platform release wiring (Linux/macOS/Windows, x86-64 + arm64) producing a single self-contained binary (`.github/workflows/release.yml` matrix via `taiki-e/upload-rust-binary-action`; Linux static musl; release notes via `git-cliff`/`cliff.toml`; versioning via `cargo-release`/`release.toml`)
+- [X] T050 Final determinism + offline-by-default audit: confirm identical inputs → identical classification/ordering/exit code and no network without `--allow-network` (FR-002, FR-017) (`tests/determinism.rs`: byte-identical reports, sorted ordering, `--allow-network` is a no-op; verified zero network-capable crates in the dependency tree)
 
 ---
 

@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --all-targets
+      # Snapshot tests use `insta::assert_snapshot!`; doctests run separately.
+      - run: cargo test --doc
+
+  msrv:
+    name: msrv (1.83)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.83.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-targets
+
+  offline-guard:
+    name: offline-by-default (FR-002, FR-017)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The binary must remain hermetic: no HTTP/TLS/socket crate may enter the tree.
+      # `licet` ships SPDX texts embedded, so any such dependency is a regression.
+      - name: Assert no network-capable crates
+        run: |
+          banned='reqwest|hyper|^ureq|curl|native-tls|openssl-sys|^rustls|^tokio '
+          if cargo tree --edges normal --prefix none | sort -u | grep -iE "$banned"; then
+            echo "::error::a network-capable crate entered the dependency tree (offline-by-default violated)"
+            exit 1
+          fi
+          echo "ok: dependency tree is network-free"

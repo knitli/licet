@@ -20,7 +20,11 @@ fn partial_apply_exits_3_and_reports_changed_vs_unchanged() {
     let locked = f.path().join("locked");
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
 
-    let out = f.licet().args(["apply", "--format", "json"]).output().unwrap();
+    let out = f
+        .licet()
+        .args(["apply", "--format", "json"])
+        .output()
+        .unwrap();
 
     // Restore perms so the TempDir can be cleaned up.
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).ok();

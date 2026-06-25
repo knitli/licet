@@ -1,0 +1,7 @@
+---
+source: tests/us1_snapshots.rs
+expression: stdout
+---
+
+Summary: 1 compliant, 0 wrong-license, 0 missing, 0 uncovered, 1 excluded, 0 unreadable
+Result: PASS
