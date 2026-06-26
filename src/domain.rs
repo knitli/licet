@@ -282,6 +282,10 @@ pub struct ActualLicenseState {
     pub detected_source: Option<ActualSource>,
     /// All copyright lines found across sources.
     pub detected_copyrights: Vec<String>,
+    /// Licenses declared for in-file SPDX snippets (`SPDX-SnippetBegin`..`SPDX-SnippetEnd`).
+    /// These describe snippets, not the file, so they never affect drift — but their texts
+    /// are still referenced for `LICENSES/` completeness (FR-030).
+    pub snippet_licenses: Vec<String>,
     /// False when the file is not valid UTF-8 (drives `Unreadable` — FR-025).
     pub encoding_ok: bool,
 }

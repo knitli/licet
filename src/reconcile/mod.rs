@@ -208,6 +208,7 @@ mod tests {
             detected_license: Some(license.to_string()),
             detected_source: Some(ActualSource::Header),
             detected_copyrights: vec![],
+            snippet_licenses: vec![],
             encoding_ok: true,
         }
     }

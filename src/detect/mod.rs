@@ -7,6 +7,10 @@
 //! file" — it takes precedence over an in-file header, and lets a binary asset be covered
 //! without ever byte-editing it.
 //!
+//! REUSE ignore blocks (`REUSE-IgnoreStart`/`REUSE-IgnoreEnd`) and SPDX snippets
+//! (`SPDX-SnippetBegin`/`SPDX-SnippetEnd`) are honored when parsing: ignored regions are
+//! dropped, and snippet licenses are collected separately from the file's own (FR-030).
+//!
 //! For throughput (SC-006) only the file head is read and scanned (FR-037/§10).
 
 use std::path::{Path, PathBuf};
@@ -23,6 +27,17 @@ const HEAD_BYTES: usize = 8 * 1024;
 
 const LICENSE_TAG: &str = "SPDX-License-Identifier:";
 const COPYRIGHT_TAG: &str = "SPDX-FileCopyrightText:";
+
+/// REUSE ignore-block markers: licensing information between them is *not* the file's own
+/// (e.g. example/output text) and is skipped entirely (REUSE 3.3 §"Ignore block").
+const IGNORE_START: &str = "REUSE-IgnoreStart";
+const IGNORE_END: &str = "REUSE-IgnoreEnd";
+
+/// SPDX snippet markers: licensing between them describes a *snippet*, not the file, so it
+/// never affects the file's drift class (REUSE 3.3 §"In-line Snippet comments", SPDX
+/// Annex H). Recognizing snippets requires the same region-skipping as ignore blocks.
+const SNIPPET_BEGIN: &str = "SPDX-SnippetBegin";
+const SNIPPET_END: &str = "SPDX-SnippetEnd";
 
 /// The `.license` sidecar path for an asset (`foo.png` → `foo.png.license`).
 pub fn sidecar_path(path: &Path) -> PathBuf {
@@ -59,13 +74,17 @@ pub fn detect(
     // A `.license` sidecar supplies the file-level headers and renders the asset's own
     // bytes irrelevant (so a binary asset with a sidecar is fully readable). A malformed
     // (non-UTF8) sidecar is ignored in favor of the asset head.
-    let (headers, header_source, encoding_ok) = match sidecar {
+    let (parsed, header_source, encoding_ok) = match sidecar {
         Some(sc) => match std::str::from_utf8(sc) {
             Ok(t) => (parse_headers(t), ActualSource::Sidecar, true),
             Err(_) => parse_asset_head(head),
         },
         None => parse_asset_head(head),
     };
+    let ParsedFile {
+        blocks: headers,
+        snippet_licenses,
+    } = parsed;
 
     // Gather copyrights from all sources (copyright is never erased — FR-009).
     let mut copyrights: Vec<String> = headers.iter().flat_map(|h| h.copyrights.clone()).collect();
@@ -89,6 +108,7 @@ pub fn detect(
         detected_license,
         detected_source,
         detected_copyrights: copyrights,
+        snippet_licenses,
         encoding_ok,
     }
 }
@@ -96,7 +116,7 @@ pub fn detect(
 /// Decode and parse the asset head into headers, reporting the source as `Header` and
 /// whether the bytes were valid UTF-8. A clean head, or one whose only error is a
 /// truncated trailing multibyte sequence (read-boundary cut), is treated as readable.
-fn parse_asset_head(head: &[u8]) -> (Vec<HeaderBlock>, ActualSource, bool) {
+fn parse_asset_head(head: &[u8]) -> (ParsedFile, ActualSource, bool) {
     let text = match std::str::from_utf8(head) {
         Ok(t) => t.to_string(),
         Err(e) if head.len() == HEAD_BYTES && e.error_len().is_none() => {
@@ -104,7 +124,7 @@ fn parse_asset_head(head: &[u8]) -> (Vec<HeaderBlock>, ActualSource, bool) {
                 .unwrap_or("")
                 .to_string()
         }
-        Err(_) => return (Vec::new(), ActualSource::Header, false),
+        Err(_) => return (ParsedFile::default(), ActualSource::Header, false),
     };
     (parse_headers(&text), ActualSource::Header, true)
 }
@@ -186,21 +206,77 @@ pub fn candidate_licenses(state: &ActualLicenseState) -> Vec<String> {
     }
 }
 
+/// In-file licensing parsed from text: file-level header blocks plus the licenses of any
+/// SPDX snippets (collected for text inventory, never treated as the file's own license).
+#[derive(Default)]
+struct ParsedFile {
+    blocks: Vec<HeaderBlock>,
+    snippet_licenses: Vec<String>,
+}
+
+/// Push and clear the in-progress file-level header block, if any.
+fn flush_block(current: &mut Option<HeaderBlock>, blocks: &mut Vec<HeaderBlock>) {
+    if let Some(b) = current.take() {
+        blocks.push(b);
+    }
+}
+
 /// Parse contiguous SPDX header blocks from text, tracking byte ranges and first-line
-/// context (FR-008, FR-019).
-fn parse_headers(text: &str) -> Vec<HeaderBlock> {
+/// context (FR-008, FR-019), honoring REUSE ignore blocks and SPDX snippets (FR-030).
+///
+/// `REUSE-IgnoreStart`..`REUSE-IgnoreEnd` regions are dropped wholesale (an unclosed
+/// `IgnoreStart` suppresses to end of input). `SPDX-SnippetBegin`..`SPDX-SnippetEnd`
+/// regions describe a snippet, not the file: their `SPDX-License-Identifier`s are gathered
+/// into `snippet_licenses` (so their texts still count for `LICENSES/`) but never become
+/// file-level header blocks. Ignore takes precedence over snippet markers.
+fn parse_headers(text: &str) -> ParsedFile {
     let position_after = leading_position(text);
     let mut blocks: Vec<HeaderBlock> = Vec::new();
+    let mut snippet_licenses: Vec<String> = Vec::new();
     let mut current: Option<HeaderBlock> = None;
-    let mut offset = 0usize;
+    let mut in_ignore = false;
+    let mut in_snippet = false;
 
-    for line in split_keep_offsets(text) {
-        let (start, raw) = line;
+    for (start, raw) in split_keep_offsets(text) {
         let end = start + raw.len();
+
+        // Ignore blocks swallow everything — including snippet markers — until they close.
+        if in_ignore {
+            if raw.contains(IGNORE_END) {
+                in_ignore = false;
+            }
+            flush_block(&mut current, &mut blocks);
+            continue;
+        }
+        if raw.contains(IGNORE_START) {
+            in_ignore = true;
+            flush_block(&mut current, &mut blocks);
+            continue;
+        }
+        // Snippet boundaries break any file-level block in progress.
+        if raw.contains(SNIPPET_END) {
+            in_snippet = false;
+            flush_block(&mut current, &mut blocks);
+            continue;
+        }
+        if raw.contains(SNIPPET_BEGIN) {
+            in_snippet = true;
+            flush_block(&mut current, &mut blocks);
+            continue;
+        }
+
         let content = strip_comment(raw);
         let lic = extract_tag(content, LICENSE_TAG);
-        let cpr = extract_tag(content, COPYRIGHT_TAG);
 
+        if in_snippet {
+            // Snippet licensing is gathered for inventory only — never file-level.
+            if let Some(l) = lic {
+                snippet_licenses.push(l.trim().to_string());
+            }
+            continue;
+        }
+
+        let cpr = extract_tag(content, COPYRIGHT_TAG);
         if lic.is_some() || cpr.is_some() {
             let block = current.get_or_insert_with(|| HeaderBlock {
                 byte_range: (start, end),
@@ -219,16 +295,15 @@ fn parse_headers(text: &str) -> Vec<HeaderBlock> {
             if let Some(c) = cpr {
                 block.copyrights.push(c.trim().to_string());
             }
-        } else if let Some(block) = current.take() {
-            blocks.push(block);
+        } else {
+            flush_block(&mut current, &mut blocks);
         }
-        offset = end;
     }
-    let _ = offset;
-    if let Some(block) = current.take() {
-        blocks.push(block);
+    flush_block(&mut current, &mut blocks);
+    ParsedFile {
+        blocks,
+        snippet_licenses,
     }
-    blocks
 }
 
 /// Determine the first-line context for safe insertion (FR-019).
@@ -301,7 +376,8 @@ mod tests {
     fn parses_single_header() {
         let h = parse_headers(
             "// SPDX-License-Identifier: MIT\n// SPDX-FileCopyrightText: 2026 Acme\n\ncode\n",
-        );
+        )
+        .blocks;
         assert_eq!(h.len(), 1);
         assert_eq!(h[0].license_ids, vec!["MIT".to_string()]);
         assert_eq!(h[0].copyrights, vec!["2026 Acme".to_string()]);
@@ -311,13 +387,14 @@ mod tests {
     fn parses_two_blocks() {
         let h = parse_headers(
             "// SPDX-License-Identifier: MIT\n\ncode\n\n// SPDX-License-Identifier: Apache-2.0\n",
-        );
+        )
+        .blocks;
         assert_eq!(h.len(), 2);
     }
 
     #[test]
     fn shebang_position() {
-        let h = parse_headers("#!/bin/sh\n# SPDX-License-Identifier: MIT\n");
+        let h = parse_headers("#!/bin/sh\n# SPDX-License-Identifier: MIT\n").blocks;
         assert_eq!(h[0].position_after, PositionAfter::Shebang);
     }
 
@@ -347,8 +424,84 @@ mod tests {
 
     #[test]
     fn block_comment_header() {
-        let h = parse_headers("<!-- SPDX-License-Identifier: CC0-1.0 -->\n");
+        let h = parse_headers("<!-- SPDX-License-Identifier: CC0-1.0 -->\n").blocks;
         assert_eq!(h[0].license_ids, vec!["CC0-1.0".to_string()]);
+    }
+
+    #[test]
+    fn ignore_block_suppresses_tags() {
+        // The real header is MIT; the bracketed GPL line is example output, not licensing.
+        let p = parse_headers(
+            "// SPDX-License-Identifier: MIT\n\
+             // REUSE-IgnoreStart\n\
+             // SPDX-License-Identifier: GPL-3.0-or-later\n\
+             // REUSE-IgnoreEnd\n",
+        );
+        let licenses: Vec<_> = p
+            .blocks
+            .iter()
+            .flat_map(|b| b.license_ids.clone())
+            .collect();
+        assert_eq!(licenses, vec!["MIT".to_string()]);
+    }
+
+    #[test]
+    fn unclosed_ignore_suppresses_to_eof() {
+        let p =
+            parse_headers("// REUSE-IgnoreStart\n// SPDX-License-Identifier: MIT\n// more stuff\n");
+        assert!(
+            p.blocks.is_empty(),
+            "everything after IgnoreStart is dropped"
+        );
+    }
+
+    #[test]
+    fn snippet_license_is_not_file_level() {
+        // The file is MIT; the snippet is GPL. Drift must see only MIT, but the snippet
+        // license is still collected for LICENSES/ inventory.
+        let p = parse_headers(
+            "// SPDX-License-Identifier: MIT\n\
+             // SPDX-FileCopyrightText: 2026 Acme\n\n\
+             code\n\n\
+             // SPDX-SnippetBegin\n\
+             // SPDX-SnippetCopyrightText: 2022 Jane Doe\n\
+             // SPDX-License-Identifier: GPL-3.0-or-later\n\
+             snippet()\n\
+             // SPDX-SnippetEnd\n",
+        );
+        let file_licenses: Vec<_> = p
+            .blocks
+            .iter()
+            .flat_map(|b| b.license_ids.clone())
+            .collect();
+        assert_eq!(file_licenses, vec!["MIT".to_string()]);
+        assert_eq!(p.snippet_licenses, vec!["GPL-3.0-or-later".to_string()]);
+        // Snippet copyright is not folded into the file's copyrights.
+        let file_copyrights: Vec<_> = p.blocks.iter().flat_map(|b| b.copyrights.clone()).collect();
+        assert_eq!(file_copyrights, vec!["2026 Acme".to_string()]);
+    }
+
+    #[test]
+    fn ignore_outranks_snippet_markers() {
+        // A snippet opened inside an ignore block is never recognized.
+        let p = parse_headers(
+            "// SPDX-License-Identifier: MIT\n\
+             // REUSE-IgnoreStart\n\
+             // SPDX-SnippetBegin\n\
+             // SPDX-License-Identifier: GPL-3.0-or-later\n\
+             // SPDX-SnippetEnd\n\
+             // REUSE-IgnoreEnd\n",
+        );
+        let file_licenses: Vec<_> = p
+            .blocks
+            .iter()
+            .flat_map(|b| b.license_ids.clone())
+            .collect();
+        assert_eq!(file_licenses, vec!["MIT".to_string()]);
+        assert!(
+            p.snippet_licenses.is_empty(),
+            "snippet inside ignore is dropped"
+        );
     }
 
     fn oob_with(license: &str, precedence: Precedence) -> OutOfBandEntry {

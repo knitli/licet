@@ -97,6 +97,11 @@ impl<'a> Engine<'a> {
             if let Some(l) = &state.actual.detected_license {
                 referenced_ids.insert(l.clone());
             }
+            // SPDX-snippet licenses are not the file's license, but their texts must still
+            // exist under LICENSES/ for REUSE compliance (FR-030).
+            for s in &state.actual.snippet_licenses {
+                collect_ids(s, &mut referenced_ids);
+            }
             // Update cache.
             if let Some(hash) = content_hash {
                 let rel = state.path.to_string_lossy().replace('\\', "/");

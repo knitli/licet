@@ -157,6 +157,10 @@ licet add <SPDX-ID> …
 - **Symlink safety**: a file reached via symlink is annotated once (Edge Cases).
 - **Atomic & non-destructive to copyright**: writes are temp-file-plus-rename (FR-024);
   copyright/authorship is preserved by default (FR-009, SC-004).
+- **Ignore blocks & snippets**: SPDX tags between `REUSE-IgnoreStart`/`REUSE-IgnoreEnd` are
+  ignored during detection (unclosed → to end of input); SPDX-snippet licenses
+  (`SPDX-SnippetBegin`..`SPDX-SnippetEnd`) never count as the file's license but are still
+  referenced for `LICENSES/` completeness. Ignore blocks outrank snippet markers (FR-030).
 - **Detection precedence**: when an in-file header (or `.license` sidecar) and a `REUSE.toml`
   annotation disagree, the annotation's REUSE 3.3 `precedence` decides — `closest` (default)
   keeps file-level info, `override` lets the annotation win (emitting a non-failing

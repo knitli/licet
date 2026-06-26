@@ -132,7 +132,8 @@ What is really present for a file, gathered by detection (FR-003a).
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `headers` | list of `HeaderBlock` | File-level SPDX header occurrences. Normally parsed from the file head; when a `<file>.license` **sidecar** exists, its headers are used instead (the REUSE spec treats sidecar content as "inside the file"), so a binary asset can be covered without byte access. |
+| `headers` | list of `HeaderBlock` | File-level SPDX header occurrences. Normally parsed from the file head; when a `<file>.license` **sidecar** exists, its headers are used instead (the REUSE spec treats sidecar content as "inside the file"), so a binary asset can be covered without byte access. Tags inside `REUSE-IgnoreStart`/`REUSE-IgnoreEnd` and inside SPDX snippets are excluded from this list (FR-030). |
+| `snippet_licenses` | list of SPDX expression | Licenses declared inside `SPDX-SnippetBegin`..`SPDX-SnippetEnd` regions. These describe snippets, not the file, so they never affect drift — but they are added to the referenced license-text set for `LICENSES/` completeness (FR-030). |
 | `out_of_band` | optional `OutOfBandEntry` | License/copyright + `precedence` from `REUSE.toml` or `.reuse/dep5` covering this path. Read for interop/detection only — never an authoring surface. |
 | `detected_license` | optional SPDX expression | The primary resolved license. |
 | `detected_source` | optional `ActualSource` | One of `Header`, `Sidecar` (`license_file`), `ReuseToml`, `Dep5`. |
@@ -237,7 +238,7 @@ The computed result of a `check` (read-only) or `apply` (writing) run.
 | LicensingConfiguration, Rule, Selector | FR-001, FR-002, FR-016, FR-022 |
 | LicenseIntent, copyright_policy | FR-009, SC-004 |
 | CommentStyle(Association) | FR-010, FR-011 |
-| ActualLicenseState, HeaderBlock | FR-003a, FR-005, FR-008, FR-019, FR-025, FR-026 |
+| ActualLicenseState, HeaderBlock | FR-003a, FR-005, FR-008, FR-019, FR-025, FR-026, FR-030 |
 | FileLicensingState, DriftClass | FR-003, FR-004, FR-012a, FR-025 |
 | LicenseTextInventory | FR-014, FR-015, FR-017, FR-028, FR-029 |
 | ReconciliationPlan/Report, FileChange | FR-006, FR-007, FR-012, FR-013, FR-020, FR-021, FR-024, SC-009, SC-010 |
