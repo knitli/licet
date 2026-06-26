@@ -161,7 +161,7 @@ licet add <SPDX-ID> …
   annotation disagree, the annotation's REUSE 3.3 `precedence` decides — `closest` (default)
   keeps file-level info, `override` lets the annotation win (emitting a non-failing
   `source_override` warning), `aggregate` accepts both. Overlapping annotations resolve by
-  last match. Legacy `.reuse/dep5` is treated as `override` (FR-003a).
+  last match. Legacy `.reuse/dep5` is aggregated with file-level information (FR-003a).
 - **Cache fidelity**: a cache hit is observationally identical to a cold run; config, rule,
   comment-style, or version changes invalidate affected entries (FR-023, SC-011).
 - **Version transparency**: `--version` and `lint` report the embedded SPDX list version

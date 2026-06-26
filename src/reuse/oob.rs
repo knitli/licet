@@ -120,9 +120,10 @@ impl OutOfBand {
                     license: license.take(),
                     copyrights: std::mem::take(copyrights),
                     source: OobSource::Dep5,
-                    // dep5 predates the `precedence` field; preserve the legacy
-                    // authoritative behavior by treating it as an override.
-                    precedence: Precedence::Override,
+                    // dep5 has no `precedence` field; REUSE 3.3 (§"Order of precedence")
+                    // specifies its information is *aggregated* with file-level info, so
+                    // both the header's and dep5's licenses apply.
+                    precedence: Precedence::Aggregate,
                 });
             }
             files.clear();
@@ -416,12 +417,12 @@ mod tests {
     }
 
     #[test]
-    fn dep5_is_override_precedence() {
+    fn dep5_is_aggregate_precedence() {
         let mut oob = OutOfBand::default();
         oob.parse_dep5("Files: img/*\nLicense: MIT\n");
         assert_eq!(
             oob.lookup(&PathBuf::from("img/x")).unwrap().precedence,
-            Precedence::Override
+            Precedence::Aggregate
         );
     }
 
