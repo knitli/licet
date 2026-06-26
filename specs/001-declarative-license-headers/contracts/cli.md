@@ -78,7 +78,11 @@ licet apply [--additive] [--target-header <index>] [--allow-dirty]
   JSON, etc.) are covered out-of-band rather than byte-edited. By default `apply` writes a
   `<file>.license` sidecar (bare SPDX lines); `--non-annotatable reuse-toml` (or
   `[output] non_annotatable = "reuse-toml"`) appends an idempotent `REUSE.toml` annotation
-  instead. A file already covered out-of-band is left untouched. The flag overrides config.
+  instead. A file already *correctly* covered out-of-band is left untouched; one covered but
+  with the wrong license is reconciled where the coverage lives — a `REUSE.toml` annotation
+  is rewritten in place, or, when only a glob matches, a more-specific exact-path annotation
+  is appended so it wins by last match (REUSE 3.3). Legacy `.reuse/dep5` coverage is flagged
+  for manual fixup rather than rewritten. The flag overrides config.
 - `--additive`: adds the declared header without removing existing license lines; warns on
   resulting contradiction (FR-020).
 - `--target-header <index>`: when a file has multiple headers, choose which block is
@@ -153,9 +157,11 @@ licet add <SPDX-ID> …
 - **Symlink safety**: a file reached via symlink is annotated once (Edge Cases).
 - **Atomic & non-destructive to copyright**: writes are temp-file-plus-rename (FR-024);
   copyright/authorship is preserved by default (FR-009, SC-004).
-- **Detection precedence**: when an in-file header and an out-of-band entry disagree, the
-  out-of-band value is authoritative for the detected license and a non-failing
-  `source_override` warning is emitted (FR-003a).
+- **Detection precedence**: when an in-file header (or `.license` sidecar) and a `REUSE.toml`
+  annotation disagree, the annotation's REUSE 3.3 `precedence` decides — `closest` (default)
+  keeps file-level info, `override` lets the annotation win (emitting a non-failing
+  `source_override` warning), `aggregate` accepts both. Overlapping annotations resolve by
+  last match. Legacy `.reuse/dep5` is treated as `override` (FR-003a).
 - **Cache fidelity**: a cache hit is observationally identical to a cold run; config, rule,
   comment-style, or version changes invalidate affected entries (FR-023, SC-011).
 - **Version transparency**: `--version` and `lint` report the embedded SPDX list version

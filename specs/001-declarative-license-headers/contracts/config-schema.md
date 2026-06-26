@@ -5,9 +5,9 @@ into the `LicensingConfiguration` entity (see `data-model.md`). Lives at repo ro
 overridable with `--config`.
 
 `license.toml` is the **only authoring surface** for licensing intent. `REUSE.toml`/
-`.reuse/dep5` are read for interop and actual-license detection only (and out-of-band wins
-over an in-file header when they disagree — FR-003a); they are never hand-authored as the
-declarative config. This reflects the maintainer's view that `REUSE.toml`, while TOML, is
+`.reuse/dep5` are read for interop and actual-license detection only (their REUSE 3.3
+`precedence` decides detection when they disagree with an in-file header — `closest` by
+default, FR-003a); they are never hand-authored as the declarative config. This reflects the maintainer's view that `REUSE.toml`, while TOML, is
 not designed for declarative intent.
 
 ## Top-level structure

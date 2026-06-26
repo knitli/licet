@@ -145,10 +145,18 @@ impl OutOfBand {
     }
 
     /// Out-of-band coverage for a repo-relative path, if any.
+    ///
+    /// When several annotations match, REUSE 3.3 resolves the overlap by **last match**
+    /// ("exclusively the last matching table in the file is used"), so we scan in reverse.
+    /// `REUSE.toml` stays authoritative over legacy `.reuse/dep5`: we prefer the last
+    /// matching `REUSE.toml` annotation and only fall back to dep5 when none matches.
     pub fn lookup(&self, rel_path: &Path) -> Option<OutOfBandEntry> {
+        let matches = |e: &&OobAnnotation| e.matchers.iter().any(|m| m.is_match(rel_path));
         self.entries
             .iter()
-            .find(|e| e.matchers.iter().any(|m| m.is_match(rel_path)))
+            .rev()
+            .find(|e| e.source == OobSource::ReuseToml && matches(e))
+            .or_else(|| self.entries.iter().rev().find(matches))
             .map(|e| OutOfBandEntry {
                 source: e.source,
                 license: e.license.clone(),
@@ -174,27 +182,76 @@ fn compile_globs(patterns: Vec<String>) -> Vec<GlobMatcher> {
         .collect()
 }
 
-/// Append a `REUSE.toml` annotation for a non-annotatable file (FR-015).
+/// Outcome of [`write_annotation`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnotationWrite {
+    /// The file's effective `REUSE.toml` license already matched; nothing written.
+    Unchanged,
+    /// An existing exact-path annotation's license was rewritten in place.
+    Updated,
+    /// A new exact-path annotation was appended (covers a previously uncovered file,
+    /// or overrides a broader glob entry — last match wins per REUSE 3.3).
+    Appended,
+}
+
+impl AnnotationWrite {
+    /// Whether the file was actually rewritten.
+    pub fn modified(self) -> bool {
+        !matches!(self, AnnotationWrite::Unchanged)
+    }
+}
+
+/// Ensure a `REUSE.toml` annotation covers `rel_path` with `license` (FR-015, FR-003a).
 ///
-/// Creates the file with a `version = 1` header if it does not exist, and is
-/// idempotent: if a block with the same `path =` already exists it is left
-/// untouched. The whole file is rewritten atomically (FR-024).
+/// Creates the file with a `version = 1` header if absent. The behavior matches REUSE 3.3
+/// last-match semantics and is idempotent:
+/// - if the annotation that currently wins for this file already declares `license`, it is
+///   left untouched ([`AnnotationWrite::Unchanged`]);
+/// - if the winning annotation is an exact single-path block for this file, its
+///   `SPDX-License-Identifier` is rewritten in place ([`AnnotationWrite::Updated`]) —
+///   copyright lines are preserved (FR-009);
+/// - otherwise (uncovered, or covered only by a broader glob) a new exact-path block is
+///   appended ([`AnnotationWrite::Appended`]); being last, it wins.
 ///
-/// Returns `true` when the file was modified, `false` when the path was already
-/// annotated.
+/// The whole file is rewritten atomically (FR-024).
 pub fn write_annotation(
     root: &Path,
     rel_path: &str,
     license: &str,
     copyrights: &[String],
-) -> std::io::Result<bool> {
+) -> std::io::Result<AnnotationWrite> {
     let reuse_toml = root.join("REUSE.toml");
     let existing = std::fs::read_to_string(&reuse_toml).unwrap_or_default();
+    let lines: Vec<&str> = existing.lines().collect();
+    let blocks = parse_blocks(&lines);
 
-    // Idempotency: skip if this exact path is already annotated.
-    let path_line = format!("path = {}", toml_string(rel_path));
-    if existing.lines().any(|l| l.trim() == path_line) {
-        return Ok(false);
+    // The annotation that currently determines this file's license is the *last* one whose
+    // path globs match it (REUSE 3.3 overlap resolution).
+    let winner = blocks
+        .iter()
+        .rev()
+        .find(|b| b.paths.iter().any(|p| glob_matches(p, rel_path)));
+
+    if let Some(b) = winner {
+        if b.license.as_deref() == Some(license) {
+            return Ok(AnnotationWrite::Unchanged);
+        }
+        // Rewrite in place only when the winner is an exact single-path block for this
+        // file carrying a license line — it still wins afterward, so this is idempotent.
+        if b.paths.len() == 1
+            && b.paths[0] == rel_path
+            && let Some(li) = b.license_line
+        {
+            let mut new_lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+            new_lines[li] = format!("SPDX-License-Identifier = {}", toml_string(license));
+            let mut out = new_lines.join("\n");
+            if existing.ends_with('\n') {
+                out.push('\n');
+            }
+            crate::reuse::atomic_write(&reuse_toml, &out)?;
+            return Ok(AnnotationWrite::Updated);
+        }
+        // Glob/array/license-less winner: fall through and append an exact override.
     }
 
     let mut out = existing.clone();
@@ -204,7 +261,7 @@ pub fn write_annotation(
         out.push('\n');
     }
     out.push_str("[[annotations]]\n");
-    out.push_str(&format!("{path_line}\n"));
+    out.push_str(&format!("path = {}\n", toml_string(rel_path)));
     for c in copyrights {
         out.push_str(&format!("SPDX-FileCopyrightText = {}\n", toml_string(c)));
     }
@@ -214,7 +271,90 @@ pub fn write_annotation(
     ));
 
     crate::reuse::atomic_write(&reuse_toml, &out)?;
-    Ok(true)
+    Ok(AnnotationWrite::Appended)
+}
+
+/// A parsed `[[annotations]]` block: its `path` values, current license, and the source
+/// line index of the `SPDX-License-Identifier` (for in-place rewrites).
+struct AnnBlock {
+    paths: Vec<String>,
+    license: Option<String>,
+    license_line: Option<usize>,
+}
+
+/// Light line-oriented parser for the `[[annotations]]` blocks of a `REUSE.toml`. It only
+/// needs `path` and `SPDX-License-Identifier`; anything else is ignored.
+fn parse_blocks(lines: &[&str]) -> Vec<AnnBlock> {
+    let mut blocks = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].trim() != "[[annotations]]" {
+            i += 1;
+            continue;
+        }
+        let mut paths = Vec::new();
+        let mut license = None;
+        let mut license_line = None;
+        let mut j = i + 1;
+        while j < lines.len() && lines[j].trim() != "[[annotations]]" {
+            if let Some((key, val)) = lines[j].split_once('=') {
+                match key.trim() {
+                    "path" => paths = quoted_values(val),
+                    "SPDX-License-Identifier" => {
+                        license = quoted_values(val).into_iter().next();
+                        license_line = Some(j);
+                    }
+                    _ => {}
+                }
+            }
+            j += 1;
+        }
+        blocks.push(AnnBlock {
+            paths,
+            license,
+            license_line,
+        });
+        i = j;
+    }
+    blocks
+}
+
+/// Match a `REUSE.toml` path glob against a repo-relative path, falling back to exact
+/// equality if the pattern is not a valid glob.
+fn glob_matches(pattern: &str, rel_path: &str) -> bool {
+    match Glob::new(pattern) {
+        Ok(g) => g.compile_matcher().is_match(rel_path),
+        Err(_) => pattern == rel_path,
+    }
+}
+
+/// Extract the double-quoted string values from a TOML scalar or inline-array tail,
+/// unescaping `\\` and `\"` (sufficient for the small value space REUSE.toml uses here).
+fn quoted_values(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut in_str = false;
+    let mut esc = false;
+    for c in s.chars() {
+        if !in_str {
+            if c == '"' {
+                in_str = true;
+            }
+            continue;
+        }
+        if esc {
+            cur.push(c);
+            esc = false;
+        } else if c == '\\' {
+            esc = true;
+        } else if c == '"' {
+            out.push(std::mem::take(&mut cur));
+            in_str = false;
+        } else {
+            cur.push(c);
+        }
+    }
+    out
 }
 
 fn toml_string(s: &str) -> String {
@@ -290,13 +430,90 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let cprs = vec!["2026 Acme".to_string()];
-        assert!(write_annotation(root, "logo.png", "CC0-1.0", &cprs).unwrap());
+        assert_eq!(
+            write_annotation(root, "logo.png", "CC0-1.0", &cprs).unwrap(),
+            AnnotationWrite::Appended
+        );
         let first = std::fs::read_to_string(root.join("REUSE.toml")).unwrap();
-        // Second write of the same path is a no-op.
-        assert!(!write_annotation(root, "logo.png", "CC0-1.0", &cprs).unwrap());
+        // Second write of the same path with the same license is a no-op.
+        assert_eq!(
+            write_annotation(root, "logo.png", "CC0-1.0", &cprs).unwrap(),
+            AnnotationWrite::Unchanged
+        );
         let second = std::fs::read_to_string(root.join("REUSE.toml")).unwrap();
         assert_eq!(first, second);
         assert_eq!(first.matches("path = \"logo.png\"").count(), 1);
         assert!(first.starts_with("version = 1"));
+    }
+
+    #[test]
+    fn write_annotation_updates_exact_path_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let cprs = vec!["2026 Acme".to_string()];
+        write_annotation(root, "logo.png", "CC0-1.0", &cprs).unwrap();
+        // A new intent for the same exact path rewrites the license line in place.
+        assert_eq!(
+            write_annotation(root, "logo.png", "CC-BY-4.0", &cprs).unwrap(),
+            AnnotationWrite::Updated
+        );
+        let text = std::fs::read_to_string(root.join("REUSE.toml")).unwrap();
+        assert_eq!(text.matches("path = \"logo.png\"").count(), 1);
+        assert!(text.contains("SPDX-License-Identifier = \"CC-BY-4.0\""));
+        assert!(!text.contains("CC0-1.0"));
+        // Copyright is preserved across the in-place license change (FR-009).
+        assert!(text.contains("SPDX-FileCopyrightText = \"2026 Acme\""));
+
+        // And it round-trips through lookup at the new license.
+        let mut oob = OutOfBand::default();
+        oob.parse_reuse_toml(&text);
+        assert_eq!(
+            oob.lookup(&PathBuf::from("logo.png")).unwrap().license,
+            Some("CC-BY-4.0".to_string())
+        );
+    }
+
+    #[test]
+    fn write_annotation_appends_override_for_glob() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("REUSE.toml"),
+            "version = 1\n\n[[annotations]]\npath = \"*.png\"\n\
+             SPDX-License-Identifier = \"MIT\"\n",
+        )
+        .unwrap();
+        // A glob covers the file; we cannot edit it without affecting siblings, so we
+        // append a more-specific exact-path block. Last match wins.
+        assert_eq!(
+            write_annotation(root, "logo.png", "CC-BY-4.0", &[]).unwrap(),
+            AnnotationWrite::Appended
+        );
+        let text = std::fs::read_to_string(root.join("REUSE.toml")).unwrap();
+        let mut oob = OutOfBand::default();
+        oob.parse_reuse_toml(&text);
+        assert_eq!(
+            oob.lookup(&PathBuf::from("logo.png")).unwrap().license,
+            Some("CC-BY-4.0".to_string()),
+            "exact override must win over the glob"
+        );
+        assert_eq!(
+            oob.lookup(&PathBuf::from("other.png")).unwrap().license,
+            Some("MIT".to_string()),
+            "the glob still governs its other files"
+        );
+    }
+
+    #[test]
+    fn lookup_is_last_match() {
+        let mut oob = OutOfBand::default();
+        oob.parse_reuse_toml(
+            "[[annotations]]\npath = \"*.png\"\nSPDX-License-Identifier = \"MIT\"\n\
+             [[annotations]]\npath = \"logo.png\"\nSPDX-License-Identifier = \"CC-BY-4.0\"\n",
+        );
+        assert_eq!(
+            oob.lookup(&PathBuf::from("logo.png")).unwrap().license,
+            Some("CC-BY-4.0".to_string())
+        );
     }
 }

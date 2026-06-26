@@ -6,7 +6,7 @@ use super::{ApplyArgs, Format};
 use crate::comment::{CommentResolver, render_sidecar};
 use crate::config::LicensingConfiguration;
 use crate::detect;
-use crate::domain::{ChangeMode, DriftClass, FileChange, NonAnnotatableStrategy};
+use crate::domain::{ActualSource, ChangeMode, DriftClass, FileChange, NonAnnotatableStrategy};
 use crate::engine::Engine;
 use crate::error::{ExitCode, LicetError, Result};
 use crate::reconcile::copyrights_to_write;
@@ -145,14 +145,13 @@ pub fn run(args: ApplyArgs) -> Result<ExitCode> {
 
         // --- Out-of-band coverage (non-annotatable / sidecar-managed file) ---
 
-        // A file already covered by a REUSE.toml/dep5 entry (and no sidecar) is left
-        // alone: editing an annotation's license in place is out of scope, and a sidecar
-        // would not reliably win (e.g. under `precedence = override`).
-        if state.actual.out_of_band.is_some() && !has_sidecar {
+        // Legacy `.reuse/dep5` is read for detection but never rewritten in place (its
+        // Debian-paragraph format is deprecated in REUSE 3.x); flag it for manual fixup.
+        if matches!(state.actual.detected_source, Some(ActualSource::Dep5)) {
             warnings.push(Warning {
                 kind: "source_override".to_string(),
                 path: Some(rel_str.clone()),
-                message: "covered by a REUSE.toml/dep5 entry with a conflicting license; \
+                message: "covered by a .reuse/dep5 entry with a conflicting license; \
                           update that entry manually"
                     .to_string(),
             });
@@ -164,23 +163,33 @@ pub fn run(args: ApplyArgs) -> Result<ExitCode> {
             copyrights_to_write(&state.actual.detected_copyrights, &intent.copyright_policy);
         let preserved = state.actual.detected_copyrights.len();
 
-        // Report path: the sidecar for sidecar mode, the asset for REUSE.toml mode.
-        let change_path = match strategy {
-            NonAnnotatableStrategy::Sidecar => detect::sidecar_path(&state.path),
-            NonAnnotatableStrategy::ReuseToml => state.path.clone(),
+        // Fix the source that currently *wins* for this file (per precedence), so the fix
+        // takes effect regardless of `closest`/`override`. A REUSE.toml annotation is
+        // corrected where it lives; in-file headers and sidecars (and a genuinely uncovered
+        // file under `--non-annotatable reuse-toml`) are covered file-level via a sidecar
+        // unless the configured strategy says otherwise.
+        let via_reuse_toml = match state.actual.detected_source {
+            Some(ActualSource::ReuseToml) => true,
+            Some(ActualSource::Sidecar | ActualSource::Header | ActualSource::Dep5) => false,
+            None => matches!(strategy, NonAnnotatableStrategy::ReuseToml),
+        };
+
+        // Report path: the asset for REUSE.toml coverage, else the sidecar.
+        let change_path = if via_reuse_toml {
+            state.path.clone()
+        } else {
+            detect::sidecar_path(&state.path)
         };
 
         let applied = if args.dry_run {
             false
         } else {
-            let result = match strategy {
-                NonAnnotatableStrategy::Sidecar => {
-                    let body = render_sidecar(&intent.license_expression, &copyrights);
-                    reuse::atomic_write(&detect::sidecar_path(&abs), &body).map(|()| true)
-                }
-                NonAnnotatableStrategy::ReuseToml => {
-                    oob::write_annotation(&root, &rel_str, &intent.license_expression, &copyrights)
-                }
+            let result = if via_reuse_toml {
+                oob::write_annotation(&root, &rel_str, &intent.license_expression, &copyrights)
+                    .map(|w| w.modified())
+            } else {
+                let body = render_sidecar(&intent.license_expression, &copyrights);
+                reuse::atomic_write(&detect::sidecar_path(&abs), &body).map(|()| true)
             };
             match result {
                 Ok(changed) => {
