@@ -74,7 +74,12 @@ silently resolved.
 | Key | Type | Notes |
 |-----|------|-------|
 | `ext` \| `file` | string | Selector; `file` takes precedence over `ext` (FR-011). |
-| `style` | string \| inline table | Built-in style name, or an inline `CommentStyle` (`line_prefix`, `block_start`, `block_end`, `block_line_prefix`). |
+| `style` | string \| inline table | Built-in style **alias** (e.g. `c`, `hash`, `slashes`), or an inline table that lowers into a `CommentSyntax` (data-model §4). |
+
+Inline-table keys: `line_prefix`, `block_start`, `block_end`, `block_line_prefix` (the
+internal block alignment prefix). The result is classified by which keys are present:
+`line_prefix` only → line-only; `block_start` + `block_end` (+ optional
+`block_line_prefix`) → block-only; both → supports both forms.
 
 ### `[exclude]`
 | Key | Type | Notes |
@@ -85,7 +90,9 @@ silently resolved.
 
 1. Every `license` parses as a valid SPDX expression or `LicenseRef-*` (FR-005).
 2. Each `[[rule]]` / `[[comment_style]]` has **exactly one** selector key.
-3. Every `style` reference resolves to a built-in or inline-defined style.
+3. Every `style` reference resolves to a built-in alias or inline-defined style. An inline
+   style must define at least one form (`line_prefix` or a block), and a block must give
+   **both** `block_start` and `block_end` — a half-specified block is a config error.
 4. Glob patterns are well-formed.
 5. Duplicate identical selectors with differing intent are reported as conflicts (FR-022).
 

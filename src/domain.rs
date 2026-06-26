@@ -3,6 +3,8 @@
 
 use std::path::PathBuf;
 
+use smol_str::SmolStr;
+
 /// A matcher key for a rule or comment-style association (data-model §2).
 ///
 /// Specificity ordering (most → least specific): exact path/filename > glob > extension.
@@ -64,42 +66,115 @@ pub struct LicenseIntent {
     pub copyright_policy: CopyrightPolicy,
 }
 
-/// Primitive comment-syntax model so new languages are pure data (data-model §4).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct CommentStyle {
-    /// Line-comment prefix, e.g. `//`, `#`, `;`.
-    pub line_prefix: Option<String>,
-    /// Block-comment opener, e.g. `/*`, `<!--`.
-    pub block_start: Option<String>,
-    /// Block-comment closer, e.g. `*/`, `-->`.
-    pub block_end: Option<String>,
-    /// Per-line prefix inside a block, e.g. ` * `.
-    pub block_line_prefix: Option<String>,
+/// Line-comment syntax, e.g. `//`, `#`, `;` (data-model §4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineStyle {
+    /// Prefix opening a line comment.
+    pub prefix: SmolStr,
 }
 
-impl CommentStyle {
-    /// A line-comment style with the given prefix.
-    pub fn line(prefix: &str) -> Self {
-        CommentStyle {
-            line_prefix: Some(prefix.to_string()),
-            ..Default::default()
+/// Block-comment syntax, e.g. `/* … */`, `<!-- … -->` (data-model §4).
+///
+/// `line_prefix` is the **internal alignment** prefix applied to each content line
+/// (e.g. ` * ` for a C block); empty when the block carries no per-line decoration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockStyle {
+    /// Block opener, e.g. `/*`, `<!--`, `(*`.
+    pub open: SmolStr,
+    /// Block closer, e.g. `*/`, `-->`, `*)`.
+    pub close: SmolStr,
+    /// Per-line alignment prefix inside the block (empty = none).
+    pub line_prefix: SmolStr,
+}
+
+/// What comment forms a language supports (data-model §4).
+///
+/// A sum type so "line-only" / "block-only" / "both" are exhaustive and illegal
+/// states — neither form available, or a half-specified block (`open` without
+/// `close`) — are unrepresentable. The render side prefers [`LineStyle`] when
+/// present (REUSE convention is a single `# SPDX-License-Identifier:` line).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommentSyntax {
+    LineOnly(LineStyle),
+    BlockOnly(BlockStyle),
+    Both { line: LineStyle, block: BlockStyle },
+}
+
+impl CommentSyntax {
+    /// Line syntax, if this language supports line comments.
+    pub fn line(&self) -> Option<&LineStyle> {
+        match self {
+            CommentSyntax::LineOnly(l) | CommentSyntax::Both { line: l, .. } => Some(l),
+            CommentSyntax::BlockOnly(_) => None,
         }
     }
 
-    /// A block-comment style with optional per-line prefix.
-    pub fn block(start: &str, end: &str, line_prefix: Option<&str>) -> Self {
-        CommentStyle {
-            line_prefix: None,
-            block_start: Some(start.to_string()),
-            block_end: Some(end.to_string()),
-            block_line_prefix: line_prefix.map(str::to_string),
+    /// Block syntax, if this language supports block comments.
+    pub fn block(&self) -> Option<&BlockStyle> {
+        match self {
+            CommentSyntax::BlockOnly(b) | CommentSyntax::Both { block: b, .. } => Some(b),
+            CommentSyntax::LineOnly(_) => None,
         }
     }
 
-    /// True when this style carries no usable syntax (cannot render a header).
-    pub fn is_empty(&self) -> bool {
-        self.line_prefix.is_none() && self.block_start.is_none()
+    /// Const line-only style (terse table authoring). `prefix` must be ≤ 23 bytes.
+    pub const fn line_only(prefix: &'static str) -> Self {
+        CommentSyntax::LineOnly(LineStyle {
+            prefix: SmolStr::new_inline(prefix),
+        })
     }
+
+    /// Const block-only style. Each token must be ≤ 23 bytes.
+    pub const fn block_only(
+        open: &'static str,
+        close: &'static str,
+        line_prefix: &'static str,
+    ) -> Self {
+        CommentSyntax::BlockOnly(BlockStyle {
+            open: SmolStr::new_inline(open),
+            close: SmolStr::new_inline(close),
+            line_prefix: SmolStr::new_inline(line_prefix),
+        })
+    }
+
+    /// Const "both" style for C-like languages. Each token must be ≤ 23 bytes.
+    pub const fn both(
+        line: &'static str,
+        open: &'static str,
+        close: &'static str,
+        line_prefix: &'static str,
+    ) -> Self {
+        CommentSyntax::Both {
+            line: LineStyle {
+                prefix: SmolStr::new_inline(line),
+            },
+            block: BlockStyle {
+                open: SmolStr::new_inline(open),
+                close: SmolStr::new_inline(close),
+                line_prefix: SmolStr::new_inline(line_prefix),
+            },
+        }
+    }
+}
+
+/// One row of the built-in comment registry (data-model §4).
+///
+/// Identity slices stay `&'static` because languages are never authored at
+/// runtime — user customization flows through config [`Selector`]s, which lower
+/// into a [`CommentSyntax`] directly. Only the rendering payload needs to be both
+/// const-constructible and runtime-ownable (hence [`SmolStr`], not `&'static str`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comment {
+    /// Human-facing family label, e.g. `"C-style"`, `"hash"` (diagnostics).
+    pub family: &'static str,
+    /// File extensions (no leading dot) this row covers.
+    pub extensions: &'static [&'static str],
+    /// Exact filenames this row covers, e.g. `Makefile`, `Dockerfile`.
+    pub filenames: &'static [&'static str],
+    /// Names usable from config `style = "..."`, e.g. `c`, `hash`, `slashes`.
+    pub aliases: &'static [&'static str],
+    /// Comment syntax this family renders/parses.
+    pub syntax: CommentSyntax,
 }
 
 /// First-line context controlling safe header insertion (data-model §5, FR-019).

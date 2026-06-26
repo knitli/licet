@@ -5,7 +5,9 @@ pub mod insert;
 
 use crate::comment;
 use crate::detect::candidate_licenses;
-use crate::domain::{ActualLicenseState, ChangeMode, CommentStyle, CopyrightPolicy, LicenseIntent};
+use crate::domain::{
+    ActualLicenseState, ChangeMode, CommentSyntax, CopyrightPolicy, LicenseIntent,
+};
 use crate::spdx;
 
 /// The computed reconciliation for a single file.
@@ -39,7 +41,7 @@ pub fn plan_file(
     content: &str,
     actual: &ActualLicenseState,
     intent: &LicenseIntent,
-    style: &CommentStyle,
+    style: &CommentSyntax,
     mode: ChangeMode,
     target_header: Option<usize>,
 ) -> PlannedChange {
@@ -218,7 +220,7 @@ mod tests {
             content,
             &actual,
             &intent("MIT"),
-            &CommentStyle::line("//"),
+            &CommentSyntax::line_only("//"),
             ChangeMode::Destructive,
             None,
         );
@@ -237,7 +239,7 @@ mod tests {
             content,
             &actual,
             &intent("MIT"),
-            &CommentStyle::line("//"),
+            &CommentSyntax::line_only("//"),
             ChangeMode::Additive,
             None,
         );
@@ -258,7 +260,7 @@ mod tests {
             content,
             &actual,
             &intent("MIT"),
-            &CommentStyle::line("//"),
+            &CommentSyntax::line_only("//"),
             ChangeMode::Destructive,
             None,
         );
@@ -278,7 +280,7 @@ mod tests {
             content,
             &actual,
             &intent("MIT"),
-            &CommentStyle::line("//"),
+            &CommentSyntax::line_only("//"),
             ChangeMode::Destructive,
             None,
         );

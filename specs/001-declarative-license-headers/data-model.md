@@ -73,27 +73,55 @@ The licensing outcome a rule/default confers.
 
 ---
 
-## 4. CommentStyleAssociation & CommentStyle
+## 4. Comment registry & CommentSyntax
 
 Maps file selectors to the comment syntax used to read/write headers (FR-010, FR-011).
 
-**CommentStyleAssociation**
+**Comment** (one built-in registry row per language family — pure data, so adding a
+language is a new row, never new code)
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `family` | string | Human-facing label, e.g. `"C-style"`, `"hash"` (diagnostics only — not a lookup key). |
+| `extensions` | list of string | Bare extensions (no leading dot) this row covers. |
+| `filenames` | list of string | Exact filenames this row covers, e.g. `Makefile`, `Dockerfile`. |
+| `aliases` | list of string | Names usable from config `style = "..."`, e.g. `c`, `hash`, `slashes`. |
+| `syntax` | `CommentSyntax` | The comment syntax this family renders/parses. |
+
+The three lookup namespaces (filename, extension, alias) are independent, so e.g. the
+`c` alias and the `c` extension never collide.
+
+**CommentSyntax** — a sum type so a language's support is exhaustive and illegal states
+(neither form, or a half-specified block) are unrepresentable:
+
+| Variant | Carries | Example |
+|---------|---------|---------|
+| `LineOnly` | `LineStyle` | `#` (Python, YAML) |
+| `BlockOnly` | `BlockStyle` | `<!-- … -->` (HTML, Markdown) |
+| `Both` | `LineStyle` + `BlockStyle` | `//` + `/* … */` (C, Rust, JS) |
+
+- **LineStyle** — `prefix` (e.g. `//`, `#`, `;`).
+- **BlockStyle** — `open` / `close` delimiters (e.g. `/*` … `*/`) and `line_prefix`, the
+  **internal alignment** prefix applied to each content line (e.g. ` * ` for a C block;
+  empty when the block carries no per-line decoration).
+
+**Render policy** (FR-011): when a style supports both forms, the **line** form is
+preferred (REUSE convention is a single `# SPDX-License-Identifier:` line); the block
+form is used only when it is the sole option.
+
+**Parse/render invariant**: detection parses a **superset** of what rendering emits, so a
+header `licet` writes is always recognized again on the next scan (never re-flagged as
+missing/wrong). Enforced by a round-trip test over every built-in style.
+
+**CommentStyleAssociation** — user override overlaid on built-ins:
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `selector` | `Selector` | Filename selector takes precedence over extension (FR-011). |
-| `style` | `CommentStyleRef` | Name of a built-in style or an inline `CommentStyle`. |
-
-**CommentStyle** (primitive model, so new languages are pure data)
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `line_prefix` | optional string | e.g. `//`, `#`, `;`. |
-| `block_start` / `block_end` | optional strings | e.g. `/*` … `*/`, `<!--` … `-->`. |
-| `block_line_prefix` | optional string | e.g. ` * ` for inside C block comments. |
+| `style` | `CommentStyleRef` | A built-in alias (`Named`) or an inline `CommentSyntax` (`Inline`). |
 
 **Resolution precedence** (FR-011): exact filename association → extension association →
-built-in default for the type. Built-ins seed at least the REUSE-known set.
+built-in filename → built-in extension. Built-ins seed at least the REUSE-known set.
 
 ---
 

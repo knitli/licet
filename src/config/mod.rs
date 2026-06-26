@@ -7,16 +7,19 @@ pub mod schema;
 
 use std::path::Path;
 
-use crate::domain::{CommentStyle, CopyrightPolicy, LicenseIntent, Selector};
+use crate::domain::{
+    BlockStyle, CommentSyntax, CopyrightPolicy, LicenseIntent, LineStyle, Selector,
+};
 use crate::error::{LicetError, Result};
 use crate::spdx;
 use schema::{RawConfig, RawIntent, RawRule, RawStyle};
+use smol_str::SmolStr;
 
 /// A reference to a comment style: a built-in name or an inline definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommentStyleRef {
     Named(String),
-    Inline(CommentStyle),
+    Inline(CommentSyntax),
 }
 
 /// A matcher paired with the intent it confers (data-model §2).
@@ -84,19 +87,8 @@ impl LicensingConfiguration {
             let style = match &cs.style {
                 RawStyle::Named(name) => CommentStyleRef::Named(name.clone()),
                 RawStyle::Inline(inline) => {
-                    let style = CommentStyle {
-                        line_prefix: inline.line_prefix.clone(),
-                        block_start: inline.block_start.clone(),
-                        block_end: inline.block_end.clone(),
-                        block_line_prefix: inline.block_line_prefix.clone(),
-                    };
-                    if style.is_empty() {
-                        return Err(LicetError::Config(format!(
-                            "comment_style for `{}` defines no syntax (need line_prefix or block_start)",
-                            selector.label()
-                        )));
-                    }
-                    CommentStyleRef::Inline(style)
+                    let syntax = inline_syntax(inline, &selector)?;
+                    CommentStyleRef::Inline(syntax)
                 }
             };
             comment_styles.push(CommentStyleAssociation { selector, style });
@@ -236,6 +228,39 @@ fn single_style_selector(cs: &schema::RawCommentStyle) -> Result<Selector> {
     }
 }
 
+/// Lower a raw inline `[[comment_style]]` definition into a [`CommentSyntax`],
+/// rejecting empty or half-specified block definitions (data-model §4).
+fn inline_syntax(inline: &schema::RawInlineStyle, selector: &Selector) -> Result<CommentSyntax> {
+    let line = inline.line_prefix.as_deref().map(|p| LineStyle {
+        prefix: SmolStr::new(p),
+    });
+
+    let block = match (&inline.block_start, &inline.block_end) {
+        (Some(open), Some(close)) => Some(BlockStyle {
+            open: SmolStr::new(open),
+            close: SmolStr::new(close),
+            line_prefix: SmolStr::new(inline.block_line_prefix.as_deref().unwrap_or("")),
+        }),
+        (None, None) => None,
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(LicetError::Config(format!(
+                "comment_style for `{}` has an incomplete block (need both block_start and block_end)",
+                selector.label()
+            )));
+        }
+    };
+
+    match (line, block) {
+        (Some(line), Some(block)) => Ok(CommentSyntax::Both { line, block }),
+        (Some(line), None) => Ok(CommentSyntax::LineOnly(line)),
+        (None, Some(block)) => Ok(CommentSyntax::BlockOnly(block)),
+        (None, None) => Err(LicetError::Config(format!(
+            "comment_style for `{}` defines no syntax (need line_prefix or block_start)",
+            selector.label()
+        ))),
+    }
+}
+
 /// Validate that a license is a parseable SPDX expression or a `LicenseRef-*`.
 fn validate_license(expr: &str, ctx: &str) -> Result<()> {
     spdx::validate_expression(expr).map_err(|e| LicetError::Config(format!("[{ctx}] {e}")))
@@ -334,6 +359,46 @@ paths = ["vendor/**", "target/**"]
         assert_eq!(
             cfg.default.unwrap().copyright_policy,
             CopyrightPolicy::PreserveAndAdd("2026 Acme".to_string())
+        );
+    }
+
+    #[test]
+    fn inline_block_only_style_parses() {
+        let cfg = LicensingConfiguration::from_toml(
+            "[[comment_style]]\next = \"vue\"\nstyle = { block_start = \"<!--\", block_end = \"-->\" }\n",
+        )
+        .unwrap();
+        match &cfg.comment_styles[0].style {
+            CommentStyleRef::Inline(CommentSyntax::BlockOnly(b)) => {
+                assert_eq!(b.open, "<!--");
+                assert_eq!(b.close, "-->");
+                assert_eq!(b.line_prefix, "");
+            }
+            other => panic!("expected block-only inline style, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inline_block_requires_both_delimiters() {
+        let err = LicensingConfiguration::from_toml(
+            "[[comment_style]]\next = \"x\"\nstyle = { block_start = \"/*\" }\n",
+        )
+        .unwrap_err();
+        assert!(
+            format!("{err}").contains("incomplete block"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn inline_empty_style_is_rejected() {
+        let err = LicensingConfiguration::from_toml(
+            "[[comment_style]]\next = \"x\"\nstyle = { block_line_prefix = \" * \" }\n",
+        )
+        .unwrap_err();
+        assert!(
+            format!("{err}").contains("defines no syntax"),
+            "unexpected error: {err}"
         );
     }
 }
