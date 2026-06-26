@@ -49,15 +49,16 @@ fn invalid_config_is_usage_error() {
 }
 
 #[test]
-fn out_of_band_wins_over_header_with_source_override_warning() {
-    // FR-003a: REUSE.toml disagrees with the in-file header → out-of-band authoritative,
-    // non-failing source_override warning emitted.
+fn override_precedence_wins_over_header_with_source_override_warning() {
+    // FR-003a: a REUSE.toml annotation with `precedence = override` suppresses a
+    // disagreeing in-file header → out-of-band authoritative, non-failing warning.
     let f = Fixture::new();
     f.config("[default]\nlicense=\"MIT\"\n")
         .write("a.rs", "// SPDX-License-Identifier: Apache-2.0\nfn a(){}\n")
         .write(
             "REUSE.toml",
-            "version = 1\n[[annotations]]\npath = \"a.rs\"\nSPDX-License-Identifier = \"MIT\"\n",
+            "version = 1\n[[annotations]]\npath = \"a.rs\"\nprecedence = \"override\"\n\
+             SPDX-License-Identifier = \"MIT\"\n",
         );
 
     let out = f
@@ -66,7 +67,7 @@ fn out_of_band_wins_over_header_with_source_override_warning() {
         .output()
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    // Out-of-band MIT satisfies the MIT default → compliant despite the Apache header.
+    // Override MIT satisfies the MIT default → compliant despite the Apache header.
     assert_eq!(
         v["summary"]["counts"]["compliant"],
         1,
@@ -77,6 +78,39 @@ fn out_of_band_wins_over_header_with_source_override_warning() {
     assert!(
         warnings.iter().any(|w| w["kind"] == "source_override"),
         "expected source_override warning: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+#[test]
+fn closest_precedence_default_lets_in_file_header_win() {
+    // FR-003a: the REUSE 3.3 default precedence is `closest` — the in-file header wins
+    // and the annotation is only a fallback. No source_override warning.
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n")
+        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
+        .write(
+            "REUSE.toml",
+            "version = 1\n[[annotations]]\npath = \"a.rs\"\nSPDX-License-Identifier = \"Apache-2.0\"\n",
+        );
+
+    let out = f
+        .licet()
+        .args(["check", "--format", "json", "--files", "a.rs"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    // Header MIT wins under closest → compliant; the Apache annotation is ignored.
+    assert_eq!(
+        v["summary"]["counts"]["compliant"],
+        1,
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let warnings = v["warnings"].as_array().cloned().unwrap_or_default();
+    assert!(
+        !warnings.iter().any(|w| w["kind"] == "source_override"),
+        "closest precedence must not emit source_override: {}",
         String::from_utf8_lossy(&out.stdout)
     );
 }

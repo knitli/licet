@@ -29,7 +29,8 @@ pub fn run(args: InitArgs) -> Result<ExitCode> {
             continue;
         }
         let head = detect::read_head(&d.abs_path).unwrap_or_default();
-        let actual = detect::detect(&d.rel_path, &head, &oob);
+        let sidecar = detect::read_sidecar(&d.abs_path);
+        let actual = detect::detect(&d.rel_path, &head, sidecar.as_deref(), &oob);
         let lic = match actual.detected_license {
             Some(l) => l,
             None => continue,

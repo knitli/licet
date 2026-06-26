@@ -61,7 +61,8 @@ compliant staged set → exit `0` quickly; full CI scan → single authoritative
 ## `apply` — reconcile to intent (FR-006, FR-007, FR-008, FR-009; US2)
 
 ```
-licet apply [--additive] [--target-header <index>] [--allow-dirty] [selection flags] [--dry-run]
+licet apply [--additive] [--target-header <index>] [--allow-dirty]
+            [--non-annotatable <sidecar|reuse-toml>] [selection flags] [--dry-run]
 ```
 - **Default (no mode flag)**: **destructive on the license identifier** — replaces
   `SPDX-License-Identifier` to match config; **always preserves** copyright/authorship
@@ -69,9 +70,15 @@ licet apply [--additive] [--target-header <index>] [--allow-dirty] [selection fl
 - **Safety (FR-024, SC-010)**: refuses to modify files when the working tree has
   uncommitted changes unless `--allow-dirty` is passed (exit `2` on refusal). Every write
   is **atomic** (temp file + rename) so an interruption never leaves a file half-written.
-- **Encoding (FR-025)**: non-UTF-8 files are never byte-edited — they are skipped, reported
-  as `Unreadable`, and contribute to a non-zero exit. Existing newline conventions (LF/CRLF)
+- **Encoding (FR-025)**: non-UTF-8 files are never byte-edited. An uncovered one is reported
+  as `Unreadable` and contributes to a non-zero exit; one already covered by a sidecar or
+  REUSE.toml annotation is read through that coverage. Existing newline conventions (LF/CRLF)
   are preserved on write (FR-026).
+- **Non-annotatable files (FR-015)**: files with no resolvable comment style (binaries,
+  JSON, etc.) are covered out-of-band rather than byte-edited. By default `apply` writes a
+  `<file>.license` sidecar (bare SPDX lines); `--non-annotatable reuse-toml` (or
+  `[output] non_annotatable = "reuse-toml"`) appends an idempotent `REUSE.toml` annotation
+  instead. A file already covered out-of-band is left untouched. The flag overrides config.
 - `--additive`: adds the declared header without removing existing license lines; warns on
   resulting contradiction (FR-020).
 - `--target-header <index>`: when a file has multiple headers, choose which block is

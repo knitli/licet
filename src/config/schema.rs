@@ -13,6 +13,15 @@ pub struct RawConfig {
     #[serde(default, rename = "comment_style")]
     pub comment_styles: Vec<RawCommentStyle>,
     pub exclude: Option<RawExclude>,
+    pub output: Option<RawOutput>,
+}
+
+/// `[output]` table: how reconciliation persists non-header coverage.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawOutput {
+    /// How to cover non-annotatable files: `"sidecar"` (default) | `"reuse-toml"`.
+    pub non_annotatable: Option<String>,
 }
 
 /// `[default]` table.

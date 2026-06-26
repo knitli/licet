@@ -38,9 +38,17 @@ pub fn discover_root(start: &Path) -> PathBuf {
     }
 }
 
-/// Patterns always excluded from coverage: the `LICENSES/` text tree and `.reuse/`
-/// metadata are REUSE infrastructure, not annotatable source (FR-014, FR-016).
-const IMPLICIT_EXCLUDES: &[&str] = &["LICENSES/**", ".reuse/**", "REUSE.toml"];
+/// Patterns always excluded from coverage: the `LICENSES/` text tree, `.reuse/` metadata,
+/// `REUSE.toml`, and `*.license` sidecars are REUSE infrastructure, not annotatable source
+/// — a sidecar is checked through its companion asset, never on its own (FR-014, FR-015,
+/// FR-016).
+const IMPLICIT_EXCLUDES: &[&str] = &[
+    "LICENSES/**",
+    ".reuse/**",
+    "REUSE.toml",
+    "*.license",
+    "**/*.license",
+];
 
 /// Build the exclusion matcher from config glob patterns plus implicit REUSE excludes.
 fn build_excludes(patterns: &[String]) -> Result<GlobSet> {

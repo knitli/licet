@@ -103,7 +103,7 @@ pub fn plan_file(
 }
 
 /// Decide which copyright lines to write for a brand-new header given the policy.
-fn copyrights_to_write(existing: &[String], policy: &CopyrightPolicy) -> Vec<String> {
+pub(crate) fn copyrights_to_write(existing: &[String], policy: &CopyrightPolicy) -> Vec<String> {
     match policy {
         CopyrightPolicy::Preserve => existing.to_vec(),
         CopyrightPolicy::PreserveAndAdd(text) => {

@@ -49,6 +49,10 @@ style = { line_prefix = "//" }
 # Paths excluded from coverage (FR-016). Distinct from "uncovered".
 [exclude]
 paths = ["vendor/**", "target/**", "*.lock"]
+
+# How `apply` covers files that can't carry an in-file header (FR-015).
+[output]
+non_annotatable = "sidecar"          # "sidecar" (default) | "reuse-toml"
 ```
 
 ## Field reference
@@ -85,6 +89,11 @@ internal block alignment prefix). The result is classified by which keys are pre
 | Key | Type | Notes |
 |-----|------|-------|
 | `paths` | list of glob | Explicitly excluded; reported as `Excluded`, never `Uncovered` (FR-016). |
+
+### `[output]`
+| Key | Type | Notes |
+|-----|------|-------|
+| `non_annotatable` | string | How `apply` covers files that can't carry an in-file header: `sidecar` (default — writes `<file>.license`) or `reuse-toml` (appends a `REUSE.toml` annotation). Overridable per-run with `--non-annotatable` (FR-015). |
 
 ## Validation rules (config errors → exit `2`)
 

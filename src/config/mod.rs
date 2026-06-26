@@ -8,7 +8,8 @@ pub mod schema;
 use std::path::Path;
 
 use crate::domain::{
-    BlockStyle, CommentSyntax, CopyrightPolicy, LicenseIntent, LineStyle, Selector,
+    BlockStyle, CommentSyntax, CopyrightPolicy, LicenseIntent, LineStyle, NonAnnotatableStrategy,
+    Selector,
 };
 use crate::error::{LicetError, Result};
 use crate::spdx;
@@ -52,6 +53,8 @@ pub struct LicensingConfiguration {
     pub rules: Vec<Rule>,
     pub comment_styles: Vec<CommentStyleAssociation>,
     pub exclude: Vec<String>,
+    /// How `apply` covers non-annotatable files (`[output] non_annotatable`).
+    pub non_annotatable: NonAnnotatableStrategy,
 }
 
 impl LicensingConfiguration {
@@ -101,11 +104,14 @@ impl LicensingConfiguration {
                 .map_err(|e| LicetError::Config(format!("invalid exclude glob `{p}`: {e}")))?;
         }
 
+        let non_annotatable = parse_non_annotatable(raw.output.as_ref())?;
+
         let config = LicensingConfiguration {
             default,
             rules,
             comment_styles,
             exclude,
+            non_annotatable,
         };
         config.check_duplicate_selectors()?;
         Ok(config)
@@ -261,6 +267,28 @@ fn inline_syntax(inline: &schema::RawInlineStyle, selector: &Selector) -> Result
     }
 }
 
+/// Validate the `[output] non_annotatable` strategy (`sidecar` default | `reuse-toml`).
+fn parse_non_annotatable(raw: Option<&schema::RawOutput>) -> Result<NonAnnotatableStrategy> {
+    match raw.and_then(|o| o.non_annotatable.as_deref()) {
+        None => Ok(NonAnnotatableStrategy::Sidecar),
+        Some(v) => parse_non_annotatable_value(v),
+    }
+}
+
+/// Parse a non-annotatable strategy from a string (shared by config + the CLI flag).
+pub fn parse_non_annotatable_value(v: &str) -> Result<NonAnnotatableStrategy> {
+    let t = v.trim();
+    if t.eq_ignore_ascii_case("sidecar") {
+        Ok(NonAnnotatableStrategy::Sidecar)
+    } else if t.eq_ignore_ascii_case("reuse-toml") || t.eq_ignore_ascii_case("reuse_toml") {
+        Ok(NonAnnotatableStrategy::ReuseToml)
+    } else {
+        Err(LicetError::Config(format!(
+            "[output] invalid non_annotatable `{v}` (expected sidecar | reuse-toml)"
+        )))
+    }
+}
+
 /// Validate that a license is a parseable SPDX expression or a `LicenseRef-*`.
 fn validate_license(expr: &str, ctx: &str) -> Result<()> {
     spdx::validate_expression(expr).map_err(|e| LicetError::Config(format!("[{ctx}] {e}")))
@@ -388,6 +416,30 @@ paths = ["vendor/**", "target/**"]
             format!("{err}").contains("incomplete block"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn non_annotatable_defaults_to_sidecar() {
+        let cfg = LicensingConfiguration::from_toml("[default]\nlicense=\"MIT\"\n").unwrap();
+        assert_eq!(cfg.non_annotatable, NonAnnotatableStrategy::Sidecar);
+    }
+
+    #[test]
+    fn non_annotatable_reuse_toml_parses() {
+        let cfg = LicensingConfiguration::from_toml(
+            "[default]\nlicense=\"MIT\"\n[output]\nnon_annotatable=\"reuse-toml\"\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.non_annotatable, NonAnnotatableStrategy::ReuseToml);
+    }
+
+    #[test]
+    fn non_annotatable_invalid_is_rejected() {
+        let err = LicensingConfiguration::from_toml(
+            "[default]\nlicense=\"MIT\"\n[output]\nnon_annotatable=\"bogus\"\n",
+        )
+        .unwrap_err();
+        assert!(format!("{err}").contains("invalid non_annotatable"));
     }
 
     #[test]

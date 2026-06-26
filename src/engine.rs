@@ -9,7 +9,7 @@ use rayon::prelude::*;
 
 use crate::comment::CommentResolver;
 use crate::detect::{self};
-use crate::domain::{ActualLicenseState, DriftClass, FileLicensingState};
+use crate::domain::{ActualLicenseState, DriftClass, FileLicensingState, Precedence};
 use crate::error::Result;
 use crate::report::Warning;
 use crate::report::classify::{ClassifyInput, classify};
@@ -71,15 +71,20 @@ impl<'a> Engine<'a> {
                     message: conf.message.clone(),
                 });
             }
-            if matches!(
-                state.actual.detected_source,
-                Some(crate::domain::ActualSource::ReuseToml | crate::domain::ActualSource::Dep5)
-            ) && has_header_disagreement(&state.actual)
+            // An override-precedence annotation is the only case where the in-file header
+            // is actually suppressed; only then is the disagreement a "source override"
+            // (FR-003a). Under `closest`/`aggregate` the header is not overridden.
+            if state
+                .actual
+                .out_of_band
+                .as_ref()
+                .is_some_and(|o| o.precedence == Precedence::Override)
+                && has_header_disagreement(&state.actual)
             {
                 warnings.push(Warning {
                     kind: "source_override".to_string(),
                     path: Some(state.path.to_string_lossy().replace('\\', "/")),
-                    message: "in-file header disagrees with out-of-band metadata; out-of-band is authoritative".to_string(),
+                    message: "in-file header disagrees with out-of-band metadata; out-of-band entry has precedence = override".to_string(),
                 });
             }
             if matches!(state.drift, DriftClass::Unreadable) {
@@ -140,11 +145,12 @@ impl<'a> Engine<'a> {
             return (state, None, "excluded".to_string());
         }
 
-        // Read head + detect.
+        // Read head (+ any `.license` sidecar) and detect.
         let head = detect::read_head(&d.abs_path).unwrap_or_default();
+        let sidecar = detect::read_sidecar(&d.abs_path);
         let content_hash = ScanCache::content_hash(&head);
         let _ = cache.get(rel.to_string_lossy().as_ref(), &content_hash); // hit recorded; full detail recomputed
-        let actual = detect::detect(rel, &head, oob);
+        let actual = detect::detect(rel, &head, sidecar.as_deref(), oob);
 
         let state = classify(ClassifyInput {
             path: rel.clone(),

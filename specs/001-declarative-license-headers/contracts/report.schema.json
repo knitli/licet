@@ -49,7 +49,7 @@
           "actual": { "type": ["string", "null"], "description": "Detected SPDX expression (in-file header or out-of-band)." },
           "actual_source": {
             "type": ["string", "null"],
-            "enum": ["header", "reuse_toml", "dep5", null],
+            "enum": ["header", "license_file", "reuse_toml", "dep5", null],
             "description": "Where the actual license was detected (FR-003a)."
           },
           "matched_rule": { "type": ["string", "null"], "description": "Identifier/selector of the winning rule (FR-002)." },

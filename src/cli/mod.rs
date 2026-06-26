@@ -52,6 +52,24 @@ pub enum Format {
     Json,
 }
 
+/// How `apply` covers non-annotatable files (overrides `[output] non_annotatable`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum NonAnnotatable {
+    /// Write a `<file>.license` sidecar.
+    Sidecar,
+    /// Append an entry to the central `REUSE.toml`.
+    ReuseToml,
+}
+
+impl From<NonAnnotatable> for crate::domain::NonAnnotatableStrategy {
+    fn from(n: NonAnnotatable) -> Self {
+        match n {
+            NonAnnotatable::Sidecar => Self::Sidecar,
+            NonAnnotatable::ReuseToml => Self::ReuseToml,
+        }
+    }
+}
+
 /// Flags shared by `check` and `apply` (selection, config, format, cache).
 #[derive(Debug, Args)]
 pub struct CommonArgs {
@@ -169,6 +187,9 @@ pub struct ApplyArgs {
     /// Compute and print the reconciliation plan without modifying any file.
     #[arg(long)]
     pub dry_run: bool,
+    /// How to cover non-annotatable files, overriding `[output] non_annotatable`.
+    #[arg(long, value_enum)]
+    pub non_annotatable: Option<NonAnnotatable>,
 }
 
 #[derive(Debug, Args)]

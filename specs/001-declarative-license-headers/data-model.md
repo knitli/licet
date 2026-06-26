@@ -32,6 +32,7 @@ The single declarative source of truth (FR-001). Loaded from `license.toml`.
 | `rules` | ordered list of `Rule` | Declaration order is significant for tie-breaking (FR-002). |
 | `comment_styles` | list of `CommentStyleAssociation` | User-defined associations overlaid on built-ins (FR-010). |
 | `exclusions` | list of `PathPattern` | Paths explicitly removed from coverage (FR-016). |
+| `non_annotatable` | `NonAnnotatableStrategy` | How `apply` covers files that can't carry a header: `Sidecar` (default, writes `<file>.license`) or `ReuseToml` (appends a `REUSE.toml` annotation). From `[output] non_annotatable`; overridable per-run with `--non-annotatable` (FR-015). |
 
 **Validation**: every license expression referenced (in `default`/`rules`) must parse as a
 valid SPDX expression or a `LicenseRef-*`; unknown bare identifiers are a config error.
@@ -131,11 +132,25 @@ What is really present for a file, gathered by detection (FR-003a).
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `headers` | list of `HeaderBlock` | Every parsed in-file SPDX header occurrence (not just the first — FR-008). |
-| `out_of_band` | optional `OutOfBandEntry` | License/copyright from `REUSE.toml` or `.reuse/dep5` covering this path. Read for interop/detection only — never an authoring surface. |
-| `detected_license` | optional SPDX expression | Canonicalized from headers and/or out-of-band; either source satisfies intent. **Precedence on disagreement**: when in-file header and out-of-band disagree, the out-of-band value is authoritative and a non-failing `source_override` diagnostic is recorded (FR-003a). |
-| `detected_copyrights` | list of string | All `SPDX-FileCopyrightText` lines found. |
-| `encoding_ok` | bool | False when the file is not valid UTF-8; drives the `Unreadable` classification (FR-025). |
+| `headers` | list of `HeaderBlock` | File-level SPDX header occurrences. Normally parsed from the file head; when a `<file>.license` **sidecar** exists, its headers are used instead (the REUSE spec treats sidecar content as "inside the file"), so a binary asset can be covered without byte access. |
+| `out_of_band` | optional `OutOfBandEntry` | License/copyright + `precedence` from `REUSE.toml` or `.reuse/dep5` covering this path. Read for interop/detection only — never an authoring surface. |
+| `detected_license` | optional SPDX expression | The primary resolved license. |
+| `detected_source` | optional `ActualSource` | One of `Header`, `Sidecar` (`license_file`), `ReuseToml`, `Dep5`. |
+| `detected_copyrights` | list of string | All `SPDX-FileCopyrightText` lines found (always aggregated across sources; copyright is never erased). |
+| `encoding_ok` | bool | False only when the asset is not valid UTF-8 **and** has no sidecar/out-of-band coverage; drives `Unreadable` (FR-025). A non-UTF8 binary covered by a sidecar or annotation is readable. |
+
+**Precedence (FR-003a)** — how an `out_of_band` annotation combines with file-level info
+(header or sidecar) follows its REUSE 3.3 `precedence`:
+
+| `Precedence` | Effective candidates | Primary |
+|--------------|----------------------|---------|
+| `Closest` (default) | file-level if present, else annotation | file-level wins |
+| `Aggregate` | file-level ∪ annotation | file-level if present |
+| `Override` | annotation if it has a license, else file-level | annotation wins; emits `source_override` on disagreement |
+
+`candidate_licenses()` is the single precedence-aware resolver both `classify` and
+`reconcile` consult, so the rule is applied in exactly one place. `.reuse/dep5` carries no
+`precedence` and is treated as `Override`.
 
 **HeaderBlock**
 

@@ -3,15 +3,16 @@
 use std::path::Path;
 
 use super::{ApplyArgs, Format};
-use crate::comment::CommentResolver;
+use crate::comment::{CommentResolver, render_sidecar};
 use crate::config::LicensingConfiguration;
 use crate::detect;
-use crate::domain::{ChangeMode, DriftClass, FileChange};
+use crate::domain::{ChangeMode, DriftClass, FileChange, NonAnnotatableStrategy};
 use crate::engine::Engine;
 use crate::error::{ExitCode, LicetError, Result};
+use crate::reconcile::copyrights_to_write;
 use crate::report::render::render_human;
 use crate::report::{Report, Warning};
-use crate::reuse::oob::OutOfBand;
+use crate::reuse::oob::{self, OutOfBand};
 use crate::reuse::{self, inventory};
 use crate::walk::{Selection, discover_root};
 
@@ -42,17 +43,26 @@ pub fn run(args: ApplyArgs) -> Result<ExitCode> {
     } else {
         ChangeMode::Destructive
     };
+    // CLI flag overrides the `[output] non_annotatable` config (default sidecar).
+    let strategy = args
+        .non_annotatable
+        .map(NonAnnotatableStrategy::from)
+        .unwrap_or(config.non_annotatable);
 
     let mut changes: Vec<FileChange> = Vec::new();
-    let mut warnings: Vec<Warning> = scan.warnings.clone();
+    // Warnings produced by the apply pass itself (contradictions, write failures, …).
+    // Detection warnings are taken from the final re-scan so they reflect on-disk state
+    // (a pre-write `encoding_skipped`, say, must not linger after a sidecar fixes it).
+    let mut warnings: Vec<Warning> = Vec::new();
     let mut any_failure = false;
     let mut any_success = false;
 
     for state in &scan.states {
-        // Only Missing/WrongLicense are writable; Uncovered/Unreadable/Excluded are not.
+        // Writable: a license header can be established/fixed. `Unreadable` (a binary
+        // asset with no sidecar) is now writable too — it is coverable out-of-band.
         let writable = matches!(
             state.drift,
-            DriftClass::MissingHeader | DriftClass::WrongLicense { .. }
+            DriftClass::MissingHeader | DriftClass::WrongLicense { .. } | DriftClass::Unreadable
         );
         if !writable {
             continue;
@@ -64,55 +74,120 @@ pub fn run(args: ApplyArgs) -> Result<ExitCode> {
         let abs = root.join(&state.path);
         let rel_str = state.path.to_string_lossy().replace('\\', "/");
 
-        let style = match resolver.resolve(&state.path) {
-            Some(s) => s,
-            None => {
+        let has_sidecar = detect::sidecar_path(&abs).exists();
+        let is_binary = matches!(state.drift, DriftClass::Unreadable);
+        let in_file = !has_sidecar && !is_binary;
+
+        // Annotatable text (a resolvable comment style, no sidecar, readable) gets an
+        // in-file header; everything else is covered out-of-band so the asset is never
+        // byte-edited (FR-015).
+        if let Some(style) = resolver.resolve(&state.path).filter(|_| in_file) {
+            // Re-read full content for an accurate edit (engine only read the head).
+            let content = match std::fs::read_to_string(&abs) {
+                Ok(c) => c,
+                Err(_) => {
+                    any_failure = true;
+                    continue;
+                }
+            };
+            // Re-detect against full content so byte ranges are correct for the whole file.
+            let actual = detect::detect(&state.path, content.as_bytes(), None, &oob);
+
+            let plan = crate::reconcile::plan_file(
+                &content,
+                &actual,
+                intent,
+                &style,
+                mode,
+                args.target_header,
+            );
+
+            if plan.contradiction {
                 warnings.push(Warning {
-                    kind: "missing_license_text".to_string(),
+                    kind: "contradiction".to_string(),
                     path: Some(rel_str.clone()),
-                    message: "no comment style resolved for this file type; cannot write header"
-                        .to_string(),
+                    message: "additive apply left two contradictory licenses".to_string(),
                 });
-                any_failure = true;
-                continue;
             }
-        };
 
-        // Re-read full content for an accurate edit (engine only read the head).
-        let content = match std::fs::read_to_string(&abs) {
-            Ok(c) => c,
-            Err(_) => {
-                any_failure = true;
-                continue;
-            }
-        };
-        // Re-detect against full content so byte ranges are correct for the whole file.
-        let actual = detect::detect(&state.path, content.as_bytes(), &oob);
+            let applied = if args.dry_run {
+                false
+            } else if let Some(new_content) = &plan.new_content {
+                match reuse::atomic_write(&abs, new_content) {
+                    Ok(()) => {
+                        any_success = true;
+                        true
+                    }
+                    Err(e) => {
+                        any_failure = true;
+                        warnings.push(Warning {
+                            kind: "partial_apply".to_string(),
+                            path: Some(rel_str.clone()),
+                            message: format!("write failed: {e}"),
+                        });
+                        false
+                    }
+                }
+            } else {
+                false
+            };
 
-        let plan = crate::reconcile::plan_file(
-            &content,
-            &actual,
-            intent,
-            &style,
-            mode,
-            args.target_header,
-        );
-
-        if plan.contradiction {
-            warnings.push(Warning {
-                kind: "contradiction".to_string(),
-                path: Some(rel_str.clone()),
-                message: "additive apply left two contradictory licenses".to_string(),
+            changes.push(FileChange {
+                path: state.path.clone(),
+                mode: plan.mode,
+                target_header: plan.target_header,
+                wrote_header: plan.wrote_header,
+                preserved_copyrights: plan.preserved_copyrights,
+                applied,
             });
+            continue;
         }
+
+        // --- Out-of-band coverage (non-annotatable / sidecar-managed file) ---
+
+        // A file already covered by a REUSE.toml/dep5 entry (and no sidecar) is left
+        // alone: editing an annotation's license in place is out of scope, and a sidecar
+        // would not reliably win (e.g. under `precedence = override`).
+        if state.actual.out_of_band.is_some() && !has_sidecar {
+            warnings.push(Warning {
+                kind: "source_override".to_string(),
+                path: Some(rel_str.clone()),
+                message: "covered by a REUSE.toml/dep5 entry with a conflicting license; \
+                          update that entry manually"
+                    .to_string(),
+            });
+            any_failure = true;
+            continue;
+        }
+
+        let copyrights =
+            copyrights_to_write(&state.actual.detected_copyrights, &intent.copyright_policy);
+        let preserved = state.actual.detected_copyrights.len();
+
+        // Report path: the sidecar for sidecar mode, the asset for REUSE.toml mode.
+        let change_path = match strategy {
+            NonAnnotatableStrategy::Sidecar => detect::sidecar_path(&state.path),
+            NonAnnotatableStrategy::ReuseToml => state.path.clone(),
+        };
 
         let applied = if args.dry_run {
             false
-        } else if let Some(new_content) = &plan.new_content {
-            match reuse::atomic_write(&abs, new_content) {
-                Ok(()) => {
-                    any_success = true;
-                    true
+        } else {
+            let result = match strategy {
+                NonAnnotatableStrategy::Sidecar => {
+                    let body = render_sidecar(&intent.license_expression, &copyrights);
+                    reuse::atomic_write(&detect::sidecar_path(&abs), &body).map(|()| true)
+                }
+                NonAnnotatableStrategy::ReuseToml => {
+                    oob::write_annotation(&root, &rel_str, &intent.license_expression, &copyrights)
+                }
+            };
+            match result {
+                Ok(changed) => {
+                    if changed {
+                        any_success = true;
+                    }
+                    changed
                 }
                 Err(e) => {
                     any_failure = true;
@@ -124,16 +199,14 @@ pub fn run(args: ApplyArgs) -> Result<ExitCode> {
                     false
                 }
             }
-        } else {
-            false
         };
 
         changes.push(FileChange {
-            path: state.path.clone(),
-            mode: plan.mode,
-            target_header: plan.target_header,
-            wrote_header: plan.wrote_header,
-            preserved_copyrights: plan.preserved_copyrights,
+            path: change_path,
+            mode: ChangeMode::Destructive,
+            target_header: None,
+            wrote_header: true,
+            preserved_copyrights: preserved,
             applied,
         });
     }
@@ -154,12 +227,17 @@ pub fn run(args: ApplyArgs) -> Result<ExitCode> {
     // Re-scan post-write so the report and exit code reflect the actual on-disk result
     // (dry-run keeps the pre-apply states, since nothing was written).
     let partial = any_failure && any_success;
-    let final_states = if args.dry_run {
-        scan.states
+    let (final_states, scan_warnings) = if args.dry_run {
+        (scan.states, scan.warnings.clone())
     } else {
         let mut fresh = super::check::open_cache(&args.common, &root, &config_text);
-        engine.scan(&selection, &mut fresh)?.states
+        let r = engine.scan(&selection, &mut fresh)?;
+        (r.states, r.warnings)
     };
+    // Final report warnings: post-write detection warnings, then apply-pass warnings.
+    let mut all_warnings = scan_warnings;
+    all_warnings.append(&mut warnings);
+    let warnings = all_warnings;
 
     let exit = if partial {
         ExitCode::Partial

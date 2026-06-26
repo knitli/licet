@@ -212,18 +212,48 @@ pub enum OobSource {
     Dep5,
 }
 
+/// How an out-of-band annotation combines with file-level licensing info, per the
+/// REUSE 3.3 `precedence` field (FR-003a, data-model §5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Precedence {
+    /// File-level info (in-file header or its `.license` sidecar) wins; the
+    /// annotation is only a fallback. The REUSE 3.3 default.
+    #[default]
+    Closest,
+    /// The annotation's info is always associated, then `closest` logic applies —
+    /// effectively the union of annotation and file-level info.
+    Aggregate,
+    /// The annotation wins and any file-level info is ignored.
+    Override,
+}
+
 /// License/copyright covering a path from an out-of-band source (data-model §5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutOfBandEntry {
     pub source: OobSource,
     pub license: Option<String>,
     pub copyrights: Vec<String>,
+    /// How this entry combines with file-level info (default `Closest`).
+    pub precedence: Precedence,
+}
+
+/// How `apply` covers a file that cannot carry an in-file comment header
+/// (non-annotatable / binary). Configured via `[output] non_annotatable`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NonAnnotatableStrategy {
+    /// Write a `<file>.license` sidecar next to the asset (default).
+    #[default]
+    Sidecar,
+    /// Append a `[[annotations]]` block to the central `REUSE.toml`.
+    ReuseToml,
 }
 
 /// Where the detected actual license was read from (report contract `actual_source`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActualSource {
     Header,
+    /// A `<file>.license` sidecar (counts as file-level info per the REUSE spec).
+    Sidecar,
     ReuseToml,
     Dep5,
 }
@@ -232,6 +262,7 @@ impl ActualSource {
     pub fn as_str(&self) -> &'static str {
         match self {
             ActualSource::Header => "header",
+            ActualSource::Sidecar => "license_file",
             ActualSource::ReuseToml => "reuse_toml",
             ActualSource::Dep5 => "dep5",
         }

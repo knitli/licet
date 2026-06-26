@@ -17,11 +17,7 @@ use std::path::Path;
 /// Policy: prefer the line form when the language supports it (REUSE convention is a
 /// single `# SPDX-License-Identifier:` line); fall back to the block form otherwise.
 pub fn render_header(syntax: &CommentSyntax, license: &str, copyrights: &[String]) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    for c in copyrights {
-        lines.push(format!("SPDX-FileCopyrightText: {c}"));
-    }
-    lines.push(format!("SPDX-License-Identifier: {license}"));
+    let lines = spdx_lines(license, copyrights);
 
     if let Some(line) = syntax.line() {
         let prefix = &line.prefix;
@@ -40,6 +36,25 @@ pub fn render_header(syntax: &CommentSyntax, license: &str, copyrights: &[String
         out.push_str(&format!("{}\n", block.close));
         out
     }
+}
+
+/// Render a `.license` sidecar body: the bare SPDX tag lines with no comment prefix
+/// (FR-015). Sidecars cover non-annotatable files; the REUSE spec treats their content as
+/// if it were inside the file. Lines are `\n`-terminated.
+pub fn render_sidecar(license: &str, copyrights: &[String]) -> String {
+    let lines = spdx_lines(license, copyrights);
+    format!("{}\n", lines.join("\n"))
+}
+
+/// The SPDX tag lines (copyright lines, then the license line) shared by the in-file
+/// header and the `.license` sidecar renderers.
+fn spdx_lines(license: &str, copyrights: &[String]) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for c in copyrights {
+        lines.push(format!("SPDX-FileCopyrightText: {c}"));
+    }
+    lines.push(format!("SPDX-License-Identifier: {license}"));
+    lines
 }
 
 /// Resolves a path to a comment style, overlaying config associations on built-ins.
@@ -184,7 +199,8 @@ mod tests {
             let rendered = render_header(&c.syntax, "MIT", &["2026 Acme".to_string()]);
             // Synthetic file: the rendered header followed by a blank line and a body.
             let content = format!("{rendered}\nbody\n");
-            let actual = crate::detect::detect(&PathBuf::from("sample"), content.as_bytes(), &oob);
+            let actual =
+                crate::detect::detect(&PathBuf::from("sample"), content.as_bytes(), None, &oob);
 
             assert_eq!(
                 actual.detected_license.as_deref(),
