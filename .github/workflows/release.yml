@@ -104,6 +104,7 @@ jobs:
   # must not leave a permanent crate release behind. (`cargo publish` also runs its own
   # x86_64 verification build before upload as a final gate.)
   publish-crate:
+    environment: cargo
     name: publish to crates.io
     needs: [create-release, upload-assets]
     # crates.io versions are permanent and immutable (yank-only), so publish stable tags
@@ -116,19 +117,9 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@baf1a810e98b6a3001d0d7234864ed75a17c42fb
-      # `--locked` publishes against the committed Cargo.lock; the verify build bundles the
-      # embedded SPDX texts from assets/licenses/ (see build.rs).
-      - name: Publish to crates.io
+
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18
+        id: auth
+      - run: cargo publish --locked
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --locked
-
-      # Once the crate exists, you can drop the long-lived CARGO_REGISTRY_TOKEN secret and
-      # switch to OIDC Trusted Publishing instead (configure it in the crates.io crate
-      # settings, then replace the env/run above with):
-      #   - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18
-      #     id: auth
-      #   - run: cargo publish --locked
-      #     env:
-      #       CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
