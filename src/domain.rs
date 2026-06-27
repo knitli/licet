@@ -188,6 +188,15 @@ pub enum PositionAfter {
     EncodingDecl,
     /// Insert after a byte-order mark.
     Bom,
+    /// Language-specific first-line requirements
+    /// BibTeX
+    BibTex,
+    /// PHP
+    PhpTag,
+    /// Haskell
+    HaskellCabal,
+    /// TeX
+    Tex,
 }
 
 /// One parsed in-file SPDX header occurrence (data-model §5).

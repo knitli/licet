@@ -43,11 +43,15 @@ pub fn discover_root(start: &Path) -> PathBuf {
 /// — a sidecar is checked through its companion asset, never on its own (FR-014, FR-015,
 /// FR-016).
 const IMPLICIT_EXCLUDES: &[&str] = &[
-    "LICENSES/**",
+    ".empty",
     ".reuse/**",
-    "REUSE.toml",
     "*.license",
+    "**/*.empty",
     "**/*.license",
+    "**/LICENSES/**",
+    "**/REUSE.toml",
+    "LICENSES/**",
+    "REUSE.toml",
 ];
 
 /// Build the exclusion matcher from config glob patterns plus implicit REUSE excludes.

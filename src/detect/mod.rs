@@ -14,6 +14,9 @@
 //! For throughput (SC-006) only the file head is read and scanned (FR-037/§10).
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use aho_corasick::AhoCorasick;
 
 use crate::domain::{
     ActualLicenseState, ActualSource, HeaderBlock, OobSource, OutOfBandEntry, PositionAfter,
@@ -38,6 +41,25 @@ const IGNORE_END: &str = "REUSE-IgnoreEnd";
 /// Annex H). Recognizing snippets requires the same region-skipping as ignore blocks.
 const SNIPPET_BEGIN: &str = "SPDX-SnippetBegin";
 const SNIPPET_END: &str = "SPDX-SnippetEnd";
+
+/// All control markers scanned per line, in pattern-ID order. One Aho-Corasick automaton
+/// finds every marker (and both tags) in a single pass, replacing six per-line substring
+/// scans. Indices here are the `pattern()` IDs matched on in [`parse_headers`].
+const MARKERS: [&str; 6] = [
+    IGNORE_START,  // 0
+    IGNORE_END,    // 1
+    SNIPPET_BEGIN, // 2
+    SNIPPET_END,   // 3
+    LICENSE_TAG,   // 4
+    COPYRIGHT_TAG, // 5
+];
+
+/// The shared automaton, built once and reused across every file/line (cheap to share
+/// across the rayon-parallel scan since it is read-only after construction).
+fn marker_automaton() -> &'static AhoCorasick {
+    static AC: OnceLock<AhoCorasick> = OnceLock::new();
+    AC.get_or_init(|| AhoCorasick::new(MARKERS).expect("static marker patterns are valid"))
+}
 
 /// The `.license` sidecar path for an asset (`foo.png` → `foo.png.license`).
 pub fn sidecar_path(path: &Path) -> PathBuf {
@@ -240,33 +262,51 @@ fn parse_headers(text: &str) -> ParsedFile {
     for (start, raw) in split_keep_offsets(text) {
         let end = start + raw.len();
 
+        // Single pass over the line: which control markers are present, and where each
+        // tag's value begins. Detection is comment-syntax-agnostic — the automaton finds
+        // the tag anywhere on the line, so no leading-marker stripping is needed (mirrors
+        // the reference REUSE tool).
+        let (mut ig_start, mut ig_end, mut sn_begin, mut sn_end) = (false, false, false, false);
+        let mut lic_at: Option<usize> = None;
+        let mut cpr_at: Option<usize> = None;
+        for m in marker_automaton().find_iter(raw) {
+            match m.pattern().as_usize() {
+                0 => ig_start = true,
+                1 => ig_end = true,
+                2 => sn_begin = true,
+                3 => sn_end = true,
+                4 if lic_at.is_none() => lic_at = Some(m.end()),
+                5 if cpr_at.is_none() => cpr_at = Some(m.end()),
+                _ => {}
+            }
+        }
+
         // Ignore blocks swallow everything — including snippet markers — until they close.
         if in_ignore {
-            if raw.contains(IGNORE_END) {
+            if ig_end {
                 in_ignore = false;
             }
             flush_block(&mut current, &mut blocks);
             continue;
         }
-        if raw.contains(IGNORE_START) {
+        if ig_start {
             in_ignore = true;
             flush_block(&mut current, &mut blocks);
             continue;
         }
         // Snippet boundaries break any file-level block in progress.
-        if raw.contains(SNIPPET_END) {
+        if sn_end {
             in_snippet = false;
             flush_block(&mut current, &mut blocks);
             continue;
         }
-        if raw.contains(SNIPPET_BEGIN) {
+        if sn_begin {
             in_snippet = true;
             flush_block(&mut current, &mut blocks);
             continue;
         }
 
-        let content = strip_comment(raw);
-        let lic = extract_tag(content, LICENSE_TAG);
+        let lic = lic_at.map(|i| trim_value(&raw[i..]));
 
         if in_snippet {
             // Snippet licensing is gathered for inventory only — never file-level.
@@ -276,7 +316,7 @@ fn parse_headers(text: &str) -> ParsedFile {
             continue;
         }
 
-        let cpr = extract_tag(content, COPYRIGHT_TAG);
+        let cpr = cpr_at.map(|i| trim_value(&raw[i..]));
         if lic.is_some() || cpr.is_some() {
             let block = current.get_or_insert_with(|| HeaderBlock {
                 byte_range: (start, end),
@@ -318,6 +358,18 @@ fn leading_position(text: &str) -> PositionAfter {
     if first.starts_with("<?xml") || first.contains("coding:") || first.contains("coding=") {
         return PositionAfter::EncodingDecl;
     }
+    if first.starts_with("<?php") {
+        return PositionAfter::PhpTag;
+    }
+    if first.starts_with("cabal-version:") {
+        return PositionAfter::HaskellCabal;
+    }
+    if first.starts_with("% !BIB") || first.starts_with("%!BIB") {
+        return PositionAfter::BibTex;
+    }
+    if first.starts_with("% !TEX") || first.starts_with("%TEX") {
+        return PositionAfter::Tex;
+    }
     PositionAfter::FileStart
 }
 
@@ -342,29 +394,22 @@ fn split_keep_offsets(text: &str) -> Vec<(usize, &str)> {
     out
 }
 
-/// Strip a leading comment marker (line prefix or block delimiters) from a line so the
-/// SPDX tag is detectable regardless of comment syntax.
-fn strip_comment(line: &str) -> &str {
-    let t = line.trim_start_matches(['\u{feff}']);
-    let t = t.trim_start();
-    for marker in ["//", "#", ";", "--", "/*", "<!--", "*", "%", "\""] {
-        if let Some(rest) = t.strip_prefix(marker) {
-            return rest.trim_start();
-        }
-    }
-    t
-}
-
-/// Extract the value following a tag on a line, trimming any trailing block terminators.
-fn extract_tag<'a>(content: &'a str, tag: &str) -> Option<&'a str> {
-    let idx = content.find(tag)?;
-    let mut val = content[idx + tag.len()..].trim();
-    for term in ["-->", "*/"] {
+/// Trim a tag value (the slice just past the tag): surrounding whitespace plus any trailing
+/// block-comment closer. The closer set spans every block style in the comment registry so
+/// detection stays comment-syntax-agnostic; only one closer can end a line, so we stop after
+/// the first match. Ordered longest-first to avoid a shorter closer masking a longer one.
+fn trim_value(rest: &str) -> &str {
+    const CLOSERS: [&str; 12] = [
+        "--}}", "--%>", "--#>", "-->", "*/", "*)", "*#", "'/", "-/", ":)", "#}", "}",
+    ];
+    let mut val = rest.trim();
+    for term in CLOSERS {
         if let Some(stripped) = val.strip_suffix(term) {
             val = stripped.trim();
+            break;
         }
     }
-    Some(val)
+    val
 }
 
 #[cfg(test)]
@@ -399,6 +444,24 @@ mod tests {
     }
 
     #[test]
+    fn php_tag_position() {
+        let h = parse_headers("<?php\n// SPDX-License-Identifier: MIT\n").blocks;
+        assert_eq!(h[0].position_after, PositionAfter::PhpTag);
+    }
+
+    #[test]
+    fn haskell_cabal_position() {
+        let h = parse_headers("cabal-version: 2.4\n-- SPDX-License-Identifier: MIT\n").blocks;
+        assert_eq!(h[0].position_after, PositionAfter::HaskellCabal);
+    }
+
+    #[test]
+    fn tex_position() {
+        let h = parse_headers("% !TEX\n% SPDX-License-Identifier: MIT\n").blocks;
+        assert_eq!(h[0].position_after, PositionAfter::Tex);
+    }
+
+    #[test]
     fn detects_non_utf8_as_unreadable() {
         let oob = OutOfBand::default();
         let bytes = [0xff, 0xfe, 0x00, 0x41]; // UTF-16-ish, invalid UTF-8 at byte 0
@@ -426,6 +489,33 @@ mod tests {
     fn block_comment_header() {
         let h = parse_headers("<!-- SPDX-License-Identifier: CC0-1.0 -->\n").blocks;
         assert_eq!(h[0].license_ids, vec!["CC0-1.0".to_string()]);
+    }
+
+    #[test]
+    fn block_closers_across_styles_are_trimmed() {
+        // One representative per registry block style; the trailing closer must be stripped
+        // so the bare SPDX id remains.
+        let cases = [
+            ("/* SPDX-License-Identifier: MIT */\n", "MIT"), // C/CSS, ML/AppleScript share *)
+            ("(* SPDX-License-Identifier: MIT *)\n", "MIT"), // ML/OCaml
+            ("{# SPDX-License-Identifier: MIT #}\n", "MIT"), // Jinja
+            ("/- SPDX-License-Identifier: MIT -/\n", "MIT"), // Lean
+            ("{{-- SPDX-License-Identifier: MIT --}}\n", "MIT"), // Blade/Handlebars
+            ("<%-- SPDX-License-Identifier: MIT --%>\n", "MIT"), // ASPX
+            ("<#-- SPDX-License-Identifier: MIT --#>\n", "MIT"), // FreeMarker
+            ("/' SPDX-License-Identifier: MIT '/\n", "MIT"), // PlantUML
+            ("(: SPDX-License-Identifier: MIT :)\n", "MIT"), // XQuery
+            ("#* SPDX-License-Identifier: MIT *#\n", "MIT"), // Velocity
+            ("{ SPDX-License-Identifier: MIT }\n", "MIT"),   // Pascal/BibTeX
+        ];
+        for (input, want) in cases {
+            let h = parse_headers(input).blocks;
+            assert_eq!(
+                h[0].license_ids,
+                vec![want.to_string()],
+                "closer not trimmed for input {input:?}"
+            );
+        }
     }
 
     #[test]

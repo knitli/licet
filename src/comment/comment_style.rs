@@ -11,115 +11,319 @@
 //! which is negligible for its size, and can swap to prebuilt maps behind the same
 //! signatures with zero caller changes if the table grows large.
 
+use crate::comment::extensions::{
+    APPLESCRIPT_EXTS, ASPX_EXTS, BATCH_EXTS, BIBTEX_EXTS, BLADE_EXTS, C_EXTS, CPP_SINGLE_ONLY_EXTS,
+    CSS_EXTS, FTL_EXTS, HANDLEBARS_EXTS, HASH_FILENAMES, HASH_STYLE_EXTS, HASKELL_EXTS, HTML_EXTS,
+    JINJA_EXTS, JULIA_EXTS, LEAN_EXTS, LEGACY_FORTRAN_EXTS, LISP_EXTS, M4_EXTS, ML_EXTS,
+    MODERN_FORTRAN_EXTS, PASCAL_EXTS, PLANTUML_EXTS, RESTRUCTURED_TEXT_EXTS, SEMICOLON_EXTS,
+    TEX_EXTS, UNIX_MANUAL_EXTS, VELOCITY_EXTS, VIM_EXTS, XQUERY_EXTS,
+};
 use crate::domain::{Comment, CommentSyntax};
 
 /// The complete built-in registry. Rows are grouped by syntax family; `family` is
 /// a descriptive label, not a lookup key.
 pub static COMMENTS: &[Comment] = &[
+    // Applescript: `--` line.
+    Comment {
+        family: "applescript",
+        extensions: APPLESCRIPT_EXTS,
+        filenames: &[],
+        aliases: &["scpt"],
+        syntax: CommentSyntax::both("--", "(*", "*)", ""),
+    },
+    // ASPX: `<%-- … --%>` block.
+    Comment {
+        family: "aspx",
+        extensions: ASPX_EXTS,
+        filenames: &[],
+        aliases: &["asp.net"],
+        syntax: CommentSyntax::block_only("<%--", "--%>", ""),
+    },
+    // BibTeX: `@Comment{ … }` block.
+    Comment {
+        family: "bibtex",
+        extensions: BIBTEX_EXTS,
+        filenames: &[],
+        aliases: &["bib"],
+        syntax: CommentSyntax::block_only("@Comment{", "}", ""),
+    },
+    // Blade: `{{-- … --}}` block.
+    Comment {
+        family: "blade",
+        extensions: BLADE_EXTS,
+        filenames: &[],
+        aliases: &["blade", "laravel blade"],
+        syntax: CommentSyntax::block_only("{{--", "--}}", ""),
+    },
+    // CSS-style: `/* … */` block, no line form (CSS/LESS/SASS/SCSS and other
+    // block-only languages). C/C++ source live in the `C` row below (both forms).
+    Comment {
+        family: "css",
+        extensions: CSS_EXTS,
+        filenames: &[],
+        aliases: &[
+            "c-block", "cblock", "css", "gas", "less", "qss", "sass", "scss",
+        ],
+        syntax: CommentSyntax::block_only("/*", "*/", " * "),
+    },
     // C-style: `//` line + `/* … */` block. Render prefers the line form, so output
     // is identical to the legacy `//`-only mapping while modeling block support.
     Comment {
-        family: "C-style",
-        extensions: &[
-            "rs", "c", "h", "cpp", "cc", "hpp", "cxx", "java", "js", "jsx", "ts", "tsx", "go",
-            "swift", "kt", "kts", "scala", "dart", "php", "cs",
+        family: "C",
+        extensions: C_EXTS,
+        filenames: &["Jenkinsfile", "go.mod"],
+        aliases: &[
+            "c",
+            "cpp",
+            "c++",
+            "c#",
+            "csharp",
+            "c-sharp",
+            "dart",
+            "go",
+            "java",
+            "javascript",
+            "js",
+            "jsonc",
+            "odin",
+            "jsx",
+            "php",
+            "react",
+            "rust",
+            "scala",
+            "slashes",
+            "swift",
+            "ts",
+            "tsx",
+            "typescript",
         ],
-        filenames: &["Jenkinsfile"],
-        aliases: &["c", "cpp", "rust", "java", "js", "slashes"],
         syntax: CommentSyntax::both("//", "/*", "*/", " * "),
+    },
+    Comment {
+        family: "cpp-single",
+        extensions: CPP_SINGLE_ONLY_EXTS,
+        filenames: &[],
+        aliases: &[
+            "cpp-single-only",
+            "cpp-line",
+            "c++-line",
+            "gleam",
+            "zig",
+            "zon",
+        ],
+        syntax: CommentSyntax::line_only("//"),
     },
     // Hash: `#` line. Covers most scripting/config languages and the `#`-commented
     // special filenames.
     Comment {
         family: "hash",
-        extensions: &[
-            "py",
-            "rb",
-            "sh",
+        extensions: HASH_STYLE_EXTS,
+        filenames: HASH_FILENAMES,
+        aliases: &[
+            "hash",
+            "bazel",
             "bash",
-            "zsh",
-            "pl",
-            "pm",
-            "r",
+            "bitbake",
+            "cmake",
+            "fish",
+            "graphql",
+            "nim",
+            "python",
+            "shell",
+            "ruby",
+            "terraform",
             "toml",
             "yaml",
-            "yml",
-            "cfg",
-            "conf",
-            "mk",
-            "tf",
-            "dockerfile",
+            "zsh",
         ],
-        filenames: &[
-            "Makefile",
-            "Dockerfile",
-            "Containerfile",
-            ".gitignore",
-            ".gitattributes",
-            "Gemfile",
-            "Rakefile",
-            "CMakeLists.txt",
-        ],
-        aliases: &["hash", "python", "shell", "ruby", "toml", "yaml"],
         syntax: CommentSyntax::line_only("#"),
     },
-    // Semicolon: `;` line (Lisp dialects, assembly, INI).
+    // Lisp family `;;;` line
+    Comment {
+        family: "lisp",
+        extensions: LISP_EXTS,
+        filenames: &[],
+        aliases: &["lisp", "assembly", "clojure", "elisp", "emacs", "scheme"],
+        syntax: CommentSyntax::line_only(";;;"),
+    },
+    // Semicolon: `;` line (INI).
     Comment {
         family: "semicolon",
-        extensions: &["el", "lisp", "clj", "scm", "asm", "ini"],
-        filenames: &[],
-        aliases: &["semicolon", "lisp", "ini"],
+        extensions: SEMICOLON_EXTS,
+        filenames: &[".npmrc", "dune", "dune-project", "dune-workspace"],
+        aliases: &["semicolon", "dune", "ini"],
         syntax: CommentSyntax::line_only(";"),
     },
-    // Dashes: `--` line (SQL, Lua, Haskell, Elm). Kept line-only; per-language block
+    // Haskell: `--` line (SQL, Lua, Haskell, Elm). Kept line-only; per-language block
     // forms (`{- -}`, `--[[ ]]`) differ and aren't represented by this shared row.
     Comment {
-        family: "dashes",
-        extensions: &["lua", "sql", "hs", "elm"],
-        filenames: &[],
-        aliases: &["lua", "sql"],
+        family: "haskell",
+        extensions: HASKELL_EXTS,
+        filenames: &["cabal.project"],
+        aliases: &["elm", "lua", "sql"],
         syntax: CommentSyntax::line_only("--"),
     },
-    // C-block / CSS: `/* … */` block with ` * ` alignment, no line form.
+    // Html: `<!-- … -->` block, no per-line prefix.
     Comment {
-        family: "css",
-        extensions: &["css", "scss", "less"],
+        family: "html",
+        extensions: HTML_EXTS,
         filenames: &[],
-        aliases: &["cblock", "css"],
-        syntax: CommentSyntax::block_only("/*", "*/", " * "),
-    },
-    // Markup: `<!-- … -->` block, no per-line prefix.
-    Comment {
-        family: "markup",
-        extensions: &["html", "htm", "xml", "svg", "vue", "md", "markdown"],
-        filenames: &[],
-        aliases: &["html", "xml", "markdown"],
+        aliases: &[
+            "astro",
+            "html",
+            "hypertext",
+            "xml",
+            "markup",
+            "markdown",
+            "svelte",
+            "vue",
+        ],
         syntax: CommentSyntax::block_only("<!--", "-->", ""),
     },
     // TeX: `%` line.
     Comment {
         family: "tex",
-        extensions: &["tex", "sty", "cls"],
+        extensions: TEX_EXTS,
         filenames: &[],
-        aliases: &["tex"],
+        aliases: &["tex", "latex"],
         syntax: CommentSyntax::line_only("%"),
     },
     // Vim script: `"` line.
     Comment {
         family: "vim",
-        extensions: &["vim"],
-        filenames: &[],
-        aliases: &["vim"],
+        extensions: VIM_EXTS,
+        filenames: &["vimrc", ".vimrc"],
+        aliases: &["vim", "vi", "nvim"],
         syntax: CommentSyntax::line_only("\""),
     },
     // Batch: `REM` line. Extensions added (the legacy `batch` alias had no extension
     // mapping, so `.bat`/`.cmd` files resolved to nothing).
     Comment {
         family: "batch",
-        extensions: &["bat", "cmd"],
-        filenames: &[],
+        extensions: BATCH_EXTS,
+        filenames: &["batchfile", ".batchfile"],
         aliases: &["batch"],
         syntax: CommentSyntax::line_only("REM"),
+    },
+    // Legacy Fortran: `C` line.
+    Comment {
+        family: "legacy_fortran",
+        extensions: LEGACY_FORTRAN_EXTS,
+        filenames: &[],
+        aliases: &["fortran", "legacy fortran", "f77"],
+        syntax: CommentSyntax::line_only("c"),
+    },
+    // Modern Fortran: `!` line.
+    Comment {
+        family: "modern_fortran",
+        extensions: MODERN_FORTRAN_EXTS,
+        filenames: &[],
+        aliases: &["modern fortran", "f90", "f95", "f03", "f08", "f18"],
+        syntax: CommentSyntax::line_only("!"),
+    },
+    // FreeMarker: `<#-- … -->` block.
+    Comment {
+        family: "ftl",
+        extensions: FTL_EXTS,
+        filenames: &[],
+        aliases: &["freemarker", "freemarker template language"],
+        syntax: CommentSyntax::block_only("<#--", "--#>", ""),
+    },
+    // Handlebars: `{{!-- … --}}` block.
+    Comment {
+        family: "handlebars",
+        extensions: HANDLEBARS_EXTS,
+        filenames: &[],
+        aliases: &["hbs"],
+        syntax: CommentSyntax::block_only("{{!--", "--}}", ""),
+    },
+    // Jinja: `{# … #}` block.
+    Comment {
+        family: "jinja",
+        extensions: JINJA_EXTS,
+        filenames: &[],
+        aliases: &["jinja2", "j2"],
+        syntax: CommentSyntax::block_only("{#", " #}", ""),
+    },
+    // Julia: `#` line + `#= … =#` block.
+    Comment {
+        family: "julia",
+        extensions: JULIA_EXTS,
+        filenames: &[],
+        aliases: &["jl"],
+        syntax: CommentSyntax::both("#", "#=", "=#", ""),
+    },
+    // Lean: `/- … -/` block.
+    Comment {
+        family: "lean",
+        extensions: LEAN_EXTS,
+        filenames: &[],
+        aliases: &[],
+        syntax: CommentSyntax::block_only("/-", "-/", "-"),
+    },
+    // M4: `dnl` line.
+    Comment {
+        family: "m4",
+        extensions: M4_EXTS,
+        filenames: &["configure.ac"],
+        aliases: &[],
+        syntax: CommentSyntax::line_only("dnl"),
+    },
+    // ML: `(* … *)` block.
+    Comment {
+        family: "ml",
+        extensions: ML_EXTS,
+        filenames: &["ROOT"],
+        aliases: &["ocaml"],
+        syntax: CommentSyntax::block_only("(*", "*)", "*"),
+    },
+    // Pascal: `//` line + `{ … }` block.
+    Comment {
+        family: "pascal",
+        extensions: PASCAL_EXTS,
+        filenames: &[],
+        aliases: &[],
+        syntax: CommentSyntax::both("//", "{", "}", ""),
+    },
+    // PlantUML: `'` line + `/' … '/` block.
+    Comment {
+        family: "plantuml",
+        extensions: PLANTUML_EXTS,
+        filenames: &[],
+        aliases: &["puml"],
+        syntax: CommentSyntax::both("'", "/'", "'/", "'"),
+    },
+    // reStructuredText: `..` line.
+    Comment {
+        family: "restructuredtext",
+        extensions: RESTRUCTURED_TEXT_EXTS,
+        filenames: &[],
+        aliases: &["rst"],
+        syntax: CommentSyntax::line_only(".."),
+    },
+    // Unix Manual: `.\` line.
+    Comment {
+        family: "unix-manual",
+        extensions: UNIX_MANUAL_EXTS,
+        filenames: &[],
+        aliases: &["manpage", "man"],
+        syntax: CommentSyntax::line_only(".\\"),
+    },
+    // Velocity: `#* … *#` block.
+    Comment {
+        family: "velocity",
+        extensions: VELOCITY_EXTS,
+        filenames: &[],
+        aliases: &["vst"],
+        syntax: CommentSyntax::block_only("#*", "*#", " "),
+    },
+    // XQuery: `(: … :)` block.
+    Comment {
+        family: "xquery",
+        extensions: XQUERY_EXTS,
+        filenames: &[],
+        aliases: &["x-query"],
+        syntax: CommentSyntax::block_only("(:", ":)", " "),
     },
 ];
 
@@ -179,7 +383,7 @@ mod tests {
     #[test]
     fn special_filenames_resolve() {
         assert_eq!(by_filename("Makefile").unwrap().family, "hash");
-        assert_eq!(by_filename("Jenkinsfile").unwrap().family, "C-style");
+        assert_eq!(by_filename("Jenkinsfile").unwrap().family, "C");
     }
 
     #[test]

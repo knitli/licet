@@ -83,14 +83,21 @@ language is a new row, never new code)
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `family` | string | Human-facing label, e.g. `"C-style"`, `"hash"` (diagnostics only — not a lookup key). |
-| `extensions` | list of string | Bare extensions (no leading dot) this row covers. |
+| `family` | string | Human-facing label, e.g. `"C"`, `"css"`, `"hash"` (diagnostics only — not a lookup key). |
+| `extensions` | list of string | Bare extensions (no leading dot) this row covers. The extension tables live in `src/comment/extensions.rs` (pure data). |
 | `filenames` | list of string | Exact filenames this row covers, e.g. `Makefile`, `Dockerfile`. |
 | `aliases` | list of string | Names usable from config `style = "..."`, e.g. `c`, `hash`, `slashes`. |
 | `syntax` | `CommentSyntax` | The comment syntax this family renders/parses. |
 
-The three lookup namespaces (filename, extension, alias) are independent, so e.g. the
-`c` alias and the `c` extension never collide.
+The three lookup namespaces (filename, extension, alias) are indexed independently — a
+config `style = "c"` (alias) and a `.c` file (extension) are resolved through separate
+indices, even when (as here) they map to the same family.
+
+Block-only languages whose only portable form is `/* … */` (CSS/LESS/SASS/SCSS, GAS
+assembly, linker scripts) live in the `css` family; C/C++ and the curly-brace family that
+support both `//` and `/* … */` live in `C`. A language is placed by the forms it actually
+supports, not by file-name resemblance (e.g. `.scss` is block-only even though it accepts
+`//`, matching the conservative render choice).
 
 **CommentSyntax** — a sum type so a language's support is exhaustive and illegal states
 (neither form, or a half-specified block) are unrepresentable:

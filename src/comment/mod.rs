@@ -4,7 +4,7 @@
 //! Resolution precedence: exact filename → extension → built-in default.
 
 mod comment_style;
-
+mod extensions;
 pub use comment_style::by_alias;
 
 use crate::config::{CommentStyleAssociation, CommentStyleRef, LicensingConfiguration};
