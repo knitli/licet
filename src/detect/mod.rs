@@ -265,8 +265,10 @@ fn parse_headers(text: &str) -> ParsedFile {
             continue;
         }
 
-        let content = strip_comment(raw);
-        let lic = extract_tag(content, LICENSE_TAG);
+        // Detection is comment-syntax-agnostic: `extract_tag` searches the whole line for
+        // the tag and trims trailing block-comment closers, so no leading-marker stripping
+        // is needed (mirrors the reference REUSE tool).
+        let lic = extract_tag(raw, LICENSE_TAG);
 
         if in_snippet {
             // Snippet licensing is gathered for inventory only — never file-level.
@@ -276,7 +278,7 @@ fn parse_headers(text: &str) -> ParsedFile {
             continue;
         }
 
-        let cpr = extract_tag(content, COPYRIGHT_TAG);
+        let cpr = extract_tag(raw, COPYRIGHT_TAG);
         if lic.is_some() || cpr.is_some() {
             let block = current.get_or_insert_with(|| HeaderBlock {
                 byte_range: (start, end),
@@ -318,6 +320,18 @@ fn leading_position(text: &str) -> PositionAfter {
     if first.starts_with("<?xml") || first.contains("coding:") || first.contains("coding=") {
         return PositionAfter::EncodingDecl;
     }
+    if first.starts_with("<?php") {
+        return PositionAfter::PhpTag;
+    }
+    if first.starts_with("cabal-version:") {
+        return PositionAfter::HaskellCabal;
+    }
+    if first.starts_with("% !BIB") || first.starts_with("%!BIB") {
+        return PositionAfter::BibTex;
+    }
+    if first.starts_with("% !TEX") || first.starts_with("%TEX") {
+        return PositionAfter::Tex;
+    }
     PositionAfter::FileStart
 }
 
@@ -340,19 +354,6 @@ fn split_keep_offsets(text: &str) -> Vec<(usize, &str)> {
         out.push((start, &text[start..]));
     }
     out
-}
-
-/// Strip a leading comment marker (line prefix or block delimiters) from a line so the
-/// SPDX tag is detectable regardless of comment syntax.
-fn strip_comment(line: &str) -> &str {
-    let t = line.trim_start_matches(['\u{feff}']);
-    let t = t.trim_start();
-    for marker in ["//", "#", ";", "--", "/*", "<!--", "*", "%", "\""] {
-        if let Some(rest) = t.strip_prefix(marker) {
-            return rest.trim_start();
-        }
-    }
-    t
 }
 
 /// Extract the value following a tag on a line, trimming any trailing block terminators.
@@ -396,6 +397,24 @@ mod tests {
     fn shebang_position() {
         let h = parse_headers("#!/bin/sh\n# SPDX-License-Identifier: MIT\n").blocks;
         assert_eq!(h[0].position_after, PositionAfter::Shebang);
+    }
+
+    #[test]
+    fn php_tag_position() {
+        let h = parse_headers("<?php\n// SPDX-License-Identifier: MIT\n").blocks;
+        assert_eq!(h[0].position_after, PositionAfter::PhpTag);
+    }
+
+    #[test]
+    fn haskell_cabal_position() {
+        let h = parse_headers("cabal-version: 2.4\n-- SPDX-License-Identifier: MIT\n").blocks;
+        assert_eq!(h[0].position_after, PositionAfter::HaskellCabal);
+    }
+
+    #[test]
+    fn tex_position() {
+        let h = parse_headers("% !TEX\n% SPDX-License-Identifier: MIT\n").blocks;
+        assert_eq!(h[0].position_after, PositionAfter::Tex);
     }
 
     #[test]
