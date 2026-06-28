@@ -1,3 +1,4 @@
+<!-- REUSE-IgnoreStart — SPDX tags in this spec are illustrative examples, not licensing of this file. -->
 # REUSE Specification – Version 3.3
 
 > 2024-11-14
@@ -270,3 +271,4 @@ SPDX-SnippetCopyrightText: (C) Example Cooperative <info@coop.example.com>
 Copyright 2016, 2018-2019 Joe Anybody
 Copyright (c) Alice, some rights reserved
 ```
+<!-- REUSE-IgnoreEnd -->

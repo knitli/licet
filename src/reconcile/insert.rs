@@ -93,6 +93,7 @@ pub fn insert_header(content: &str, header: &str) -> String {
     out
 }
 
+// REUSE-IgnoreStart — SPDX tags in the tests below are fixtures, not this file's licensing.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,3 +138,4 @@ mod tests {
         );
     }
 }
+// REUSE-IgnoreEnd

@@ -1,6 +1,7 @@
 //! US5 — `add-license` offline text materialization (FR-017, FR-029).
 //! The offline analog of `reuse download`: copy referenced texts into `LICENSES/` from the
 //! embedded bundle, without touching source files or the config. Quickstart Scenario 5.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -149,3 +150,4 @@ fn json_output_is_well_formed() {
     assert_eq!(v["summary"]["pass"], true);
     assert!(v["license_texts"]["spdx_list_version"].is_string());
 }
+// REUSE-IgnoreEnd

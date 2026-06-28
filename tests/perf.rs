@@ -2,6 +2,7 @@
 //! well within budget. This is a coarse timing guard (not a microbenchmark) sized to be
 //! stable in CI; the spec's 10k-file <1s warm / <3s cold bars are validated on the
 //! reference 4-core runner. Here we assert a generous ceiling to catch gross regressions.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -33,3 +34,4 @@ fn scans_a_few_thousand_files_quickly() {
     );
     eprintln!("cold scan of {n} files: {cold:?}");
 }
+// REUSE-IgnoreEnd

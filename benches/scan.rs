@@ -6,6 +6,7 @@
 //! the reference runner; here we watch for regressions in relative throughput.
 //!
 //! Run with `cargo bench`; results land under `target/criterion/`.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 use std::path::Path;
 
@@ -74,3 +75,4 @@ fn bench_scan(c: &mut Criterion) {
 
 criterion_group!(benches, bench_scan);
 criterion_main!(benches);
+// REUSE-IgnoreEnd

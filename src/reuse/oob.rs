@@ -362,6 +362,7 @@ fn toml_string(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+// REUSE-IgnoreStart — SPDX tags in the tests below are fixtures, not this file's licensing.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -518,3 +519,4 @@ mod tests {
         );
     }
 }
+// REUSE-IgnoreEnd
