@@ -1,5 +1,6 @@
 //! `.license` sidecars and REUSE.toml coverage for non-annotatable files (FR-015),
 //! plus REUSE 3.3 precedence on detection (FR-003a).
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 
@@ -238,3 +239,4 @@ fn reuse_toml_write_is_idempotent() {
     assert_eq!(first, second, "REUSE.toml entry duplicated on re-apply");
     assert_eq!(first.matches("path = \"logo.png\"").count(), 1);
 }
+// REUSE-IgnoreEnd

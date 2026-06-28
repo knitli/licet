@@ -1,5 +1,6 @@
 //! US5 — REUSE compatibility & migration (SC-007, SC-008, FR-014, FR-017, FR-018, FR-028).
 //! Quickstart Scenario 5.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -100,3 +101,4 @@ fn which_reuse() -> Option<()> {
         .filter(|o| o.status.success())
         .map(|_| ())
 }
+// REUSE-IgnoreEnd

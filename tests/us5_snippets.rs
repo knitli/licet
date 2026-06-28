@@ -2,6 +2,7 @@
 //! describes the snippet, not the file, so it never satisfies (or violates) the file's
 //! declared intent — but its text still counts for `LICENSES/` completeness. Information
 //! inside `REUSE-IgnoreStart`..`REUSE-IgnoreEnd` is dropped entirely.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 
@@ -100,3 +101,4 @@ fn ignore_block_hides_spdx_tags() {
         1
     );
 }
+// REUSE-IgnoreEnd

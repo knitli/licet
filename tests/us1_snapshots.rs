@@ -2,6 +2,7 @@
 //! These pin the exact rendered text of `licet check` so layout regressions are caught.
 //! File ordering is deterministic (walk sorts by relative path), and all paths are
 //! repo-relative, so the snapshots are stable across machines/tempdirs.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -54,3 +55,4 @@ fn compliant_report_human() {
     let stdout = String::from_utf8(out.stdout).unwrap();
     insta::assert_snapshot!(stdout);
 }
+// REUSE-IgnoreEnd

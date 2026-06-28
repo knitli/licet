@@ -1,4 +1,5 @@
 //! US1 — declarative drift detection (SC-001, SC-003, FR-004). Mirrors quickstart Scenario 1.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -133,3 +134,4 @@ fn semantic_expression_equivalence_is_compliant() {
         String::from_utf8_lossy(&out.stdout)
     );
 }
+// REUSE-IgnoreEnd

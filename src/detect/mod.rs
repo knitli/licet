@@ -23,6 +23,7 @@ use crate::domain::{
     Precedence,
 };
 use crate::reuse::oob::OutOfBand;
+use crate::spdx;
 
 /// Bytes of the file head scanned for headers. Headers live at the very top, so a few KB
 /// is ample and keeps IO minimal.
@@ -306,12 +307,18 @@ fn parse_headers(text: &str) -> ParsedFile {
             continue;
         }
 
-        let lic = lic_at.map(|i| trim_value(&raw[i..]));
+        // Accept the value only when it is a well-formed SPDX expression. The tag is matched
+        // anywhere on the line (comment-syntax-agnostic), so without this guard any prose or
+        // code that merely follows the marker — e.g. the tag appearing inside a source
+        // string literal — would be captured verbatim as the file's license (FR-005).
+        let lic = lic_at
+            .map(|i| trim_value(&raw[i..]).trim().to_string())
+            .filter(|l| spdx::validate_expression(l).is_ok());
 
         if in_snippet {
             // Snippet licensing is gathered for inventory only — never file-level.
             if let Some(l) = lic {
-                snippet_licenses.push(l.trim().to_string());
+                snippet_licenses.push(l);
             }
             continue;
         }
@@ -330,7 +337,7 @@ fn parse_headers(text: &str) -> ParsedFile {
             });
             block.byte_range.1 = end;
             if let Some(l) = lic {
-                block.license_ids.push(l.trim().to_string());
+                block.license_ids.push(l);
             }
             if let Some(c) = cpr {
                 block.copyrights.push(c.trim().to_string());
@@ -489,6 +496,24 @@ mod tests {
     fn block_comment_header() {
         let h = parse_headers("<!-- SPDX-License-Identifier: CC0-1.0 -->\n").blocks;
         assert_eq!(h[0].license_ids, vec!["CC0-1.0".to_string()]);
+    }
+
+    #[test]
+    fn non_spdx_tag_value_is_not_captured_as_license() {
+        // The tag is matched anywhere on a line, so a tag appearing inside a source-string
+        // literal (e.g. this project's own test fixtures) trails non-SPDX junk after the id.
+        // Such a value must not be accepted as the file's license (would otherwise poison
+        // `init`'s generated config — regression for the unescaped-TOML crash).
+        let parsed =
+            parse_headers("    f.write(\"a.py\", \"# SPDX-License-Identifier: MIT\\nx=1\\n\")\n");
+        assert!(
+            parsed.blocks.iter().all(|b| b.license_ids.is_empty()),
+            "malformed SPDX expression must not be detected: {:?}",
+            parsed.blocks
+        );
+        // A clean id on its own line is still detected.
+        let ok = parse_headers("# SPDX-License-Identifier: MIT\n").blocks;
+        assert_eq!(ok[0].license_ids, vec!["MIT".to_string()]);
     }
 
     #[test]

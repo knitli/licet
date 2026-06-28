@@ -5,6 +5,7 @@
 //! 3. The binary makes no network calls; `--allow-network` is advisory only. (The absence
 //!    of any network-capable crate in the dependency tree is the structural guarantee —
 //!    asserted in CI by `cargo tree`; here we confirm the offline paths behave identically.)
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -92,3 +93,4 @@ fn allow_network_flag_does_not_change_offline_behavior() {
         "JSON lint posture must be identical regardless of --allow-network (no fetch occurs)"
     );
 }
+// REUSE-IgnoreEnd

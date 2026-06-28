@@ -1,5 +1,6 @@
 //! US3 — new comment style persists & round-trips (SC-005, FR-010, FR-011).
 //! Quickstart Scenario 3.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -66,3 +67,4 @@ fn inline_custom_style_is_used() {
         "{content}"
     );
 }
+// REUSE-IgnoreEnd

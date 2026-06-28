@@ -1,5 +1,6 @@
 //! US4 — enforce in hook / CI (SC-006, SC-009, FR-013, FR-025, FR-027).
 //! Quickstart Scenario 4.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -84,3 +85,4 @@ fn explain_names_winning_rule() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("glob=examples/**/*.rs"), "{stdout}");
 }
+// REUSE-IgnoreEnd

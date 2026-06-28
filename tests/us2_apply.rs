@@ -1,4 +1,5 @@
 //! US2 — reconcile to intent (SC-002, SC-004, FR-006..FR-009, FR-020). Quickstart Scenario 2.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -120,3 +121,4 @@ fn target_header_replaces_chosen_block() {
     );
     assert!(!content.contains("ISC"), "second block replaced: {content}");
 }
+// REUSE-IgnoreEnd

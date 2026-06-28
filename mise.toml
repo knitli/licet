@@ -3,7 +3,7 @@ python = "3.13.14"
 rust = "nightly"
 git-cliff = "latest"
 cargo-release = "latest"
-'cargo:licet' = "0.1.4"
+"cargo:licet" = "0.2.1"
 
 [tools.'pipx:reuse']
 version = "latest"

@@ -1,5 +1,6 @@
 //! US2 — partial apply (FR-021): when some writes succeed and others fail, exit 3 and
 //! report changed vs unchanged files.
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 #![cfg(unix)]
 
@@ -46,3 +47,4 @@ fn partial_apply_exits_3_and_reports_changed_vs_unchanged() {
     );
     assert!(f.read("ok/a.rs").contains("SPDX-License-Identifier: MIT"));
 }
+// REUSE-IgnoreEnd

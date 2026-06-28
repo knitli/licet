@@ -1,5 +1,6 @@
 //! Apply-safety, config-error, and detection-precedence suites
 //! (FR-024, SC-010, FR-003a, config validation → exit 2).
+// REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
 use common::Fixture;
@@ -129,3 +130,4 @@ fn line_endings_preserved_on_write() {
         "CRLF preserved: {content:?}"
     );
 }
+// REUSE-IgnoreEnd

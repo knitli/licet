@@ -178,6 +178,7 @@ fn extract_terminator(value: &str) -> String {
     String::new()
 }
 
+// REUSE-IgnoreStart — SPDX tags in the tests below are fixtures, not this file's licensing.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,3 +289,4 @@ mod tests {
         assert!(plan.new_content.is_none());
     }
 }
+// REUSE-IgnoreEnd
