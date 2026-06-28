@@ -1,6 +1,11 @@
 # Changelog
 
 All notable changes to `licet` are documented here.
+## [0.2.2] - 2026-06-28
+
+### Bug Fixes
+- Escape generated TOML and reject non-SPDX detected values
+
 ## [0.2.0] - 2026-06-27
 
 ### Bug Fixes
