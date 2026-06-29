@@ -96,7 +96,7 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 - [X] T023 [P] [US2] Implement the comment-style header writer (write side) in `src/comment/mod.rs`: render an SPDX header block in a given `CommentStyle` (line-prefix and block forms) (FR-011)
 - [X] T024 [P] [US2] Implement the first-line-aware inserter in `src/reconcile/insert.rs`: detect/skip shebang, encoding/XML decl, BOM and insert the header immediately after (FR-019, research.md §6)
 - [X] T025 [US2] Implement the reconcile engine in `src/reconcile/mod.rs`: destructive license-id replacement (default), additive append with contradiction detection, copyright preservation by default, and targeted-header selection among multiple blocks (FR-006, FR-007, FR-008, FR-009, FR-020) — depends on T023, T024
-- [X] T026 [US2] Implement offline license-text materialization in `src/reuse/inventory.rs`: write referenced-but-missing standard texts into `LICENSES/` from the embedded bundle and scaffold `LicenseRef-*` placeholders (FR-017) — depends on T007
+- [X] T026 [US2] Implement offline license-text materialization in `src/reuse/inventory.rs`: write referenced-but-missing standard texts into `LICENSES/` from the embedded bundle; never scaffold placeholders — surface unbundled/`LicenseRef-*` ids as still-missing with guidance, recognize `.txt`/`.md`/extension-less `LICENSES/` files, and offer opt-in `curl` fetch for standard ids (FR-017) — depends on T007
 - [X] T027 [US2] Add symlink-safety dedup in `src/walk/mod.rs` so a file reached via symlink is annotated only once (Edge Cases)
 - [X] T028 [US2] Wire the `apply` command in `src/cli/apply.rs`: `--additive`, `--target-header <index>`, `--dry-run` (emit ReconciliationPlan without writing); partial-apply reporting with exit 3; populate `change`/`warnings` in the JSON report (FR-007, FR-008, FR-021) — depends on T025, T026
 
@@ -156,15 +156,15 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 
 - [X] T039 [P] [US5] Conformance test in `tests/conformance/reuse_compat.rs`: reconcile a fixture then assert the upstream `reuse lint` (or its spec checks) reports it compliant; gate-skip with a clear message if `reuse` is unavailable (SC-007)
 - [X] T040 [P] [US5] Integration test in `tests/integration/us5_init.rs`: `init --from-reuse` against a fixture with `REUSE.toml` + headers produces a `license.toml` whose projection matches current licensing (spec US5 scenarios 1–3, SC-008)
-- [X] T051 [P] [US5] Integration suite in `tests/us5_add_license.rs` for the `add-license` command: explicit-id and `--all` materialization, idempotent re-run, `LicenseRef` placeholder scaffold, unknown-id exit 1, flag-misuse exit 2, dirty-tree tolerance + source/config untouched, and JSON shape (FR-029)
+- [X] T051 [P] [US5] Integration suite in `tests/us5_add_license.rs` for the `add-license` command: explicit-id and `--all` materialization, idempotent re-run, `LicenseRef` never-scaffolded exit 1 with path guidance, compound-expression split, `.md` text recognition, unknown-id exit 1, flag-misuse exit 2, dirty-tree tolerance + source/config untouched, and JSON shape (FR-029)
 
 ### Implementation for User Story 5
 
 - [X] T041 [P] [US5] Implement `LicenseTextInventory` reporting in `src/reuse/inventory.rs`: compute referenced/present/missing/bundled-available over `LICENSES/` and config (FR-014, FR-017) — extends T026
 - [X] T042 [P] [US5] Implement out-of-band metadata writing for non-annotatable/binary files via `REUSE.toml` in `src/reuse/oob.rs`, reading `.reuse/dep5` for backward compatibility (FR-015, research.md §7)
 - [X] T043 [US5] Implement the `init`/bootstrap command in `src/cli/init.rs`: inspect existing headers + `REUSE.toml`/`.reuse/dep5` and emit `license.toml` (`--output`), modifying no source files (FR-018) — depends on T018, T009
-- [X] T044 [US5] Implement the `lint` command in `src/cli/lint.rs`: report REUSE posture (header presence, `LICENSES/` completeness, out-of-band coverage), list missing texts resolved from the offline bundle, `--allow-network` opt-in for ids absent from the bundle, exit 1 if non-compliant (FR-014, FR-017) — depends on T041, T042
-- [X] T052 [US5] Implement the `add-license` command (alias `add`) in `src/cli/add_license.rs`: materialize referenced license texts into `LICENSES/` from the offline bundle standalone — explicit ids or `--all` (mutually exclusive), `LicenseRef-*` placeholder scaffold, never touching source files/config or requiring a clean tree; exit 0/1/2 per cli.md. Wire into `src/cli/mod.rs`; repoint the `lint` missing-text hint from `apply` to `add-license` (FR-017, FR-029) — depends on T041
+- [X] T044 [US5] Implement the `lint` command in `src/cli/lint.rs`: report REUSE posture (header presence, `LICENSES/` completeness, out-of-band coverage), list missing texts with actionable guidance (bundle/add-license, SPDX URL, or `LICENSES/<id>.txt` path), read-only/no fetch, exit 1 if non-compliant (FR-014, FR-017) — depends on T041, T042
+- [X] T052 [US5] Implement the `add-license` command (alias `add`) in `src/cli/add_license.rs`: materialize referenced license texts into `LICENSES/` from the offline bundle standalone — explicit ids or `--all` (mutually exclusive), never scaffolding placeholders, opt-in `--allow-curl`/interactive fetch for unbundled standard ids, never touching source files/config or requiring a clean tree; exit 0/1/2 per cli.md. Wire into `src/cli/mod.rs`; repoint the `lint` missing-text hint from `apply` to `add-license` (FR-017, FR-029) — depends on T041
 
 **Checkpoint**: Output is REUSE-compliant, `lint` reports posture offline, and existing projects migrate via bootstrap.
 
@@ -179,7 +179,7 @@ Single Rust project: library core in `src/`, integration/conformance/perf suites
 - [X] T047 [P] Write `README.md` usage docs and run the quickstart.md scenarios end-to-end as a documented manual/CI validation pass
 - [X] T048 [P] Add a `criterion` benchmark harness under `benches/` for scan throughput, tracking the SC-006 budget over time (`benches/scan.rs`, cold + warm cache groups; ~120k files/s observed)
 - [X] T049 Cross-platform release wiring (Linux/macOS/Windows, x86-64 + arm64) producing a single self-contained binary (`.github/workflows/release.yml` matrix via `taiki-e/upload-rust-binary-action`; Linux static musl; release notes via `git-cliff`/`cliff.toml`; versioning via `cargo-release`/`release.toml`)
-- [X] T050 Final determinism + offline-by-default audit: confirm identical inputs → identical classification/ordering/exit code and no network without `--allow-network` (FR-002, FR-017) (`tests/determinism.rs`: byte-identical reports, sorted ordering, `--allow-network` is a no-op; verified zero network-capable crates in the dependency tree)
+- [X] T050 Final determinism + offline-by-default audit: confirm identical inputs → identical classification/ordering/exit code and that the default paths reach no network (FR-002, FR-017) (`tests/determinism.rs`: byte-identical reports, sorted ordering, `lint` is offline & deterministic; verified zero network-capable crates in the dependency tree — the only network access is opt-in `--allow-curl`, which shells out to the user's own `curl`)
 
 ---
 

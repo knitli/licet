@@ -85,8 +85,10 @@ licet apply --dry-run       # print the full plan without writing
 
 `apply` refuses to modify a dirty working tree unless `--allow-dirty`, so `git checkout`
 is always a clean undo. Writes are atomic (temp-file + rename). Missing standard license
-texts are materialized into `LICENSES/` from the offline bundle; `LicenseRef-*` texts are
-scaffolded as placeholders.
+texts are materialized into `LICENSES/` from the offline bundle. A text that can't be
+produced is **never** stubbed (a placeholder would falsely read as compliant): the apply
+fails with guidance — the SPDX download URL for a standard id, or the `LICENSES/<id>.txt`
+path to create for a `LicenseRef-*`.
 
 ### `init` / `lint`
 
@@ -107,9 +109,11 @@ licet add-license --all            # every referenced-but-missing text
 ```
 
 Unlike `apply`, it writes **only** under `LICENSES/` — it never edits source files or
-`license.toml`, so it does not require a clean working tree. `LicenseRef-*` ids are
-scaffolded as placeholders. Exit `0` on success, `1` if a requested text can't be supplied
-offline, `2` on flag misuse (neither ids nor `--all`, or both).
+`license.toml`, so it does not require a clean working tree. A standard id absent from the
+bundle can be fetched with `--allow-curl` (an opt-in that shells out to your own `curl`; an
+interactive terminal is asked y/N otherwise); `LicenseRef-*` ids are never fetched or stubbed.
+Exit `0` on success, `1` if a requested text can't be supplied (naming its path/URL), `2` on
+flag misuse (neither ids nor `--all`, or both).
 
 ### Shell completions
 
@@ -132,7 +136,9 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 ## Behavior guarantees
 
 - **Deterministic**: same inputs → same classification, ordering, and exit code.
-- **Offline by default**: no network unless `--allow-network` is passed to `lint`.
+- **Offline by default**: the binary ships no network capability; the only network access is
+  an explicit opt-in (`--allow-curl`, or an interactive y/N) that shells out to your own
+  `curl` to fetch standard SPDX texts absent from the bundle.
 - **Copyright-safe**: copyright/authorship preserved across a license-only replace.
 - **Detection precedence**: when an in-file header and out-of-band metadata disagree, the
   out-of-band value wins and a non-failing `source_override` warning is emitted.

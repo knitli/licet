@@ -2,9 +2,11 @@
 //!
 //! 1. Identical inputs → byte-identical JSON report (classification, ordering, exit code).
 //! 2. File ordering is a stable lexicographic sort.
-//! 3. The binary makes no network calls; `--allow-network` is advisory only. (The absence
-//!    of any network-capable crate in the dependency tree is the structural guarantee —
-//!    asserted in CI by `cargo tree`; here we confirm the offline paths behave identically.)
+//! 3. The binary makes no network calls by default. The absence of any network-capable
+//!    crate in the dependency tree is the structural guarantee (asserted in CI by the
+//!    offline-guard / `cargo tree`); here we confirm the default `lint` path is offline and
+//!    deterministic. Network access exists only as an explicit opt-in (`--allow-curl`, which
+//!    shells out to the user's own `curl`) and is exercised in the add-license suite.
 // REUSE-IgnoreStart — SPDX tags below are test fixtures, not this file's licensing.
 
 mod common;
@@ -68,29 +70,28 @@ fn file_ordering_is_lexicographically_sorted() {
 }
 
 #[test]
-fn allow_network_flag_does_not_change_offline_behavior() {
-    // A repo whose declared license is a non-bundled SPDX id: with or without
-    // --allow-network, `lint` runs offline and produces the same posture/exit code.
+fn lint_is_offline_and_deterministic() {
+    // `lint` is a read-only checker: it never reaches the network and produces a
+    // byte-identical posture across runs for identical inputs.
     let f = Fixture::new();
     f.config("[default]\nlicense=\"MIT\"\n")
         .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
         .commit("init");
 
-    let offline = f
-        .licet()
-        .args(["lint", "--format", "json"])
-        .output()
-        .unwrap();
-    let allowed = f
-        .licet()
-        .args(["lint", "--allow-network", "--format", "json"])
-        .output()
-        .unwrap();
-    assert_eq!(offline.status.code(), allowed.status.code());
+    let run = || {
+        let out = f
+            .licet()
+            .args(["lint", "--format", "json"])
+            .output()
+            .unwrap();
+        (out.status.code(), String::from_utf8(out.stdout).unwrap())
+    };
+    let (code1, json1) = run();
+    let (code2, json2) = run();
+    assert_eq!(code1, code2, "lint exit code must be stable");
     assert_eq!(
-        String::from_utf8(offline.stdout).unwrap(),
-        String::from_utf8(allowed.stdout).unwrap(),
-        "JSON lint posture must be identical regardless of --allow-network (no fetch occurs)"
+        json1, json2,
+        "lint posture must be byte-identical across runs"
     );
 }
 // REUSE-IgnoreEnd

@@ -220,29 +220,35 @@ pub fn run(args: ApplyArgs) -> Result<ExitCode> {
         });
     }
 
-    // Materialize referenced-but-missing license texts (offline) unless dry-run.
-    if !args.dry_run
-        && let Ok(res) = inventory::materialize(&root, &scan.referenced_ids)
-    {
-        for id in res.still_missing {
-            warnings.push(Warning {
-                kind: "missing_license_text".to_string(),
-                path: None,
-                message: format!("no offline text for `{id}` (use lint --allow-network)"),
-            });
-        }
-    }
-
-    // Re-scan post-write so the report and exit code reflect the actual on-disk result
-    // (dry-run keeps the pre-apply states, since nothing was written).
+    // Re-scan post-write so the report, exit code, and license-text inventory reflect the
+    // actual on-disk result (dry-run keeps the pre-apply states, since nothing was written).
     let partial = any_failure && any_success;
-    let (final_states, scan_warnings) = if args.dry_run {
-        (scan.states, scan.warnings.clone())
+    let (final_states, scan_warnings, post_referenced) = if args.dry_run {
+        (scan.states, scan.warnings.clone(), scan.referenced_ids)
     } else {
         let mut fresh = super::check::open_cache(&args.common, &root, &config_text);
         let r = engine.scan(&selection, &mut fresh)?;
-        (r.states, r.warnings)
+        (r.states, r.warnings, r.referenced_ids)
     };
+
+    // Materialize referenced-but-missing license texts (offline) unless dry-run, against the
+    // *post-apply* references so texts for licenses we just replaced are not sought. A text we
+    // cannot produce is a hard failure (FR-017): silently stubbing it would let a non-compliant
+    // repo read as compliant. Standard SPDX ids may be fetched via `curl` when the user opts in
+    // (`--allow-curl` or an interactive y/N); the rest fail with guidance.
+    let mut missing_texts: Vec<String> = Vec::new();
+    if !args.dry_run
+        && let Ok(res) = inventory::materialize(&root, &post_referenced)
+    {
+        missing_texts = super::resolve_missing_texts(&root, &res.still_missing, args.allow_curl);
+        for id in &missing_texts {
+            warnings.push(Warning {
+                kind: "missing_license_text".to_string(),
+                path: None,
+                message: inventory::missing_text_guidance(id),
+            });
+        }
+    }
     // Final report warnings: post-write detection warnings, then apply-pass warnings.
     let mut all_warnings = scan_warnings;
     all_warnings.append(&mut warnings);
@@ -250,7 +256,7 @@ pub fn run(args: ApplyArgs) -> Result<ExitCode> {
 
     let exit = if partial {
         ExitCode::Partial
-    } else if has_unfixable(&final_states) || any_failure {
+    } else if has_unfixable(&final_states) || any_failure || !missing_texts.is_empty() {
         ExitCode::Violations
     } else {
         ExitCode::Success

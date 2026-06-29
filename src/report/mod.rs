@@ -123,11 +123,16 @@ impl Report {
             }
         }
 
+        // A referenced license text that could not be supplied is a compliance failure, not
+        // a mere warning: surfacing PASS here while exiting non-zero is exactly the "looks
+        // compliant when it isn't" trap we removed placeholders to avoid.
+        let missing_text = warnings.iter().any(|w| w.kind == "missing_license_text");
         let pass = counts.wrong_license == 0
             && counts.missing_header == 0
             && counts.uncovered == 0
             && counts.unreadable == 0
-            && counts.conflicts == 0;
+            && counts.conflicts == 0
+            && !missing_text;
 
         let change_by_path: std::collections::HashMap<&std::path::Path, &FileChange> =
             changes.iter().map(|c| (c.path.as_path(), c)).collect();

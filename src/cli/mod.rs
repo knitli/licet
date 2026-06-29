@@ -6,7 +6,7 @@ pub mod check;
 pub mod init;
 pub mod lint;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -190,6 +190,11 @@ pub struct ApplyArgs {
     /// How to cover non-annotatable files, overriding `[output] non_annotatable`.
     #[arg(long, value_enum)]
     pub non_annotatable: Option<NonAnnotatable>,
+    /// Permit shelling out to the system `curl` to fetch standard SPDX texts absent from
+    /// the offline bundle (see `add-license --allow-curl`). Without it, a missing license
+    /// text fails the apply with a download link instead of being silently stubbed.
+    #[arg(long)]
+    pub allow_curl: bool,
 }
 
 #[derive(Debug, Args)]
@@ -212,9 +217,6 @@ pub struct LintArgs {
     pub config: PathBuf,
     #[arg(long, value_enum, default_value_t = Format::Human)]
     pub format: Format,
-    /// Permit fetching license ids absent from the offline bundle.
-    #[arg(long)]
-    pub allow_network: bool,
 }
 
 #[derive(Debug, Args)]
@@ -225,10 +227,11 @@ pub struct AddLicenseArgs {
     /// Materialize every referenced-but-missing license text.
     #[arg(long)]
     pub all: bool,
-    /// Permit fetching ids absent from the offline bundle (the hermetic binary never
-    /// reaches the network; accepted for parity with `lint`/FR-017).
+    /// Permit shelling out to the system `curl` to fetch standard SPDX texts absent from
+    /// the offline bundle. The binary itself never reaches the network; this only runs a
+    /// `curl` you already have. Without it, a missing text errors with a download link.
     #[arg(long)]
-    pub allow_network: bool,
+    pub allow_curl: bool,
     /// Path to the declarative config (only read by --all to discover referenced ids).
     #[arg(long, default_value = "license.toml")]
     pub config: PathBuf,
@@ -248,6 +251,50 @@ pub fn print_completions(shell: Shell) {
     let mut cmd = Cli::command();
     let name = cmd.get_name().to_string();
     clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+}
+
+/// Resolve license texts left missing after an offline `materialize`. For standard SPDX
+/// ids, fetch via `curl` when permitted — `allow_curl` grants it outright; otherwise an
+/// interactive terminal is asked y/N (a non-TTY without the flag never fetches).
+/// `LicenseRef-*` is never fetched. Returns the ids still missing afterward, for the caller
+/// to report with [`crate::reuse::inventory::missing_text_guidance`] and fail on.
+pub fn resolve_missing_texts(root: &Path, missing: &[String], allow_curl: bool) -> Vec<String> {
+    use std::io::IsTerminal;
+    let interactive = std::io::stdin().is_terminal();
+    let mut unresolved = Vec::new();
+    for id in missing {
+        if spdx::is_license_ref(id) {
+            unresolved.push(id.clone());
+            continue;
+        }
+        let permitted = allow_curl
+            || (interactive
+                && prompt_yes_no(&format!("Fetch `{id}` from SPDX via curl into LICENSES/?")));
+        if !permitted {
+            unresolved.push(id.clone());
+            continue;
+        }
+        match crate::reuse::inventory::fetch_via_curl(root, id) {
+            Ok(path) => println!("  ↓ fetched {id} → {}", path.display()),
+            Err(e) => {
+                eprintln!("  ! could not fetch {id}: {e}");
+                unresolved.push(id.clone());
+            }
+        }
+    }
+    unresolved
+}
+
+/// Ask a y/N question on the terminal; any non-affirmative reply (including EOF) is No.
+fn prompt_yes_no(question: &str) -> bool {
+    use std::io::Write;
+    print!("{question} [y/N] ");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    if std::io::stdin().read_line(&mut line).is_err() {
+        return false;
+    }
+    matches!(line.trim(), "y" | "Y" | "yes" | "Yes" | "YES")
 }
 
 /// Render the `--version` line including the embedded SPDX list version (FR-028).

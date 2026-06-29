@@ -211,7 +211,7 @@ Tracks referenced identifiers vs present texts in `LICENSES/` (FR-014, FR-017, F
 |-------|------|-------|
 | `referenced` | set of SPDX id | Every identifier used anywhere in the repo/config. |
 | `present` | set of SPDX id | Texts found under `LICENSES/`. |
-| `missing` | derived set | `referenced − present` → reported; standard ids materializable from the embedded bundle offline; `LicenseRef-*` scaffolded as placeholders. The `add-license` command (FR-029) materializes this set (or an explicit subset) into `LICENSES/`. |
+| `missing` | derived set | `referenced − present` → reported; standard ids materializable from the embedded bundle offline. A missing text is **never** stubbed with a placeholder (a stub would falsely pass REUSE's text-existence check): unbundled standard ids may be fetched via opt-in `curl` (`--allow-curl`, or an interactive y/N), and `LicenseRef-*` ids must be supplied by hand at `LICENSES/<id>.txt`; otherwise the run errors with guidance. `present` recognizes the text under a `.txt`/`.md` suffix or none, matching `reuse`. The `add-license` command (FR-029) materializes this set (or an explicit subset) into `LICENSES/`. |
 | `bundled` | set of SPDX id | Identifiers whose text is embedded in the binary. |
 
 ---

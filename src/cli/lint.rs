@@ -4,7 +4,7 @@ use super::{Format, LintArgs};
 use crate::config::LicensingConfiguration;
 use crate::engine::Engine;
 use crate::error::{ExitCode, Result};
-use crate::reuse::inventory::LicenseTextInventory;
+use crate::reuse::inventory::{self, LicenseTextInventory};
 use crate::spdx;
 use crate::walk::cache::ScanCache;
 use crate::walk::{Selection, discover_root};
@@ -54,16 +54,13 @@ pub fn run(args: LintArgs) -> Result<ExitCode> {
             if !inv.missing.is_empty() {
                 println!("  missing license texts:");
                 for id in &inv.missing {
-                    let hint = if spdx::bundled_text(id).is_some() {
-                        "available offline (run `licet add-license`)"
-                    } else if spdx::is_license_ref(id) {
-                        "custom LicenseRef — scaffold a placeholder"
-                    } else if args.allow_network {
-                        "absent from bundle — would fetch (network allowed)"
+                    if spdx::bundled_text(id).is_some() {
+                        println!(
+                            "    - `{id}` is available offline — run `licet add-license {id}`"
+                        );
                     } else {
-                        "absent from bundle — needs --allow-network"
-                    };
-                    println!("    - {id} ({hint})");
+                        println!("    - {}", inventory::missing_text_guidance(id));
+                    }
                 }
             }
             println!(

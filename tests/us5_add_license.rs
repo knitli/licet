@@ -74,7 +74,7 @@ fn unknown_id_unavailable_offline_exits_violations() {
 }
 
 #[test]
-fn license_ref_is_scaffolded_as_placeholder() {
+fn license_ref_is_never_scaffolded_and_errors_with_path_guidance() {
     let f = Fixture::new();
     f.write("a.rs", "fn a(){}\n").commit("init");
     let out = f
@@ -82,9 +82,18 @@ fn license_ref_is_scaffolded_as_placeholder() {
         .args(["add", "LicenseRef-Acme-1.0"])
         .output()
         .unwrap();
-    assert_eq!(out.status.code(), Some(0));
-    let text = f.read("LICENSES/LicenseRef-Acme-1.0.txt");
-    assert!(text.contains("TODO"), "placeholder scaffold: {text}");
+    // A custom LicenseRef has no text to materialize: it must NOT be stubbed (a placeholder
+    // would falsely satisfy REUSE), and must fail with guidance naming the path to create.
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        !f.path().join("LICENSES/LicenseRef-Acme-1.0.txt").exists(),
+        "no placeholder file should be written"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("LICENSES/LicenseRef-Acme-1.0.txt"),
+        "names the path to create: {stdout}"
+    );
 }
 
 #[test]
@@ -133,6 +142,54 @@ fn writes_only_under_licenses_and_does_not_require_clean_tree() {
         "config must be untouched"
     );
     assert!(f.path().join("LICENSES/MIT.txt").exists());
+}
+
+#[test]
+fn compound_expression_materializes_each_constituent_separately() {
+    // A detected `MIT OR Apache-2.0` header must split into two texts, never a single
+    // `LICENSES/MIT OR Apache-2.0.txt` file.
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT OR Apache-2.0\"\n")
+        .write(
+            "a.rs",
+            "// SPDX-License-Identifier: MIT OR Apache-2.0\nfn a(){}\n",
+        )
+        .commit("init");
+    let out = f.licet().args(["add", "--all"]).output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(f.path().join("LICENSES/MIT.txt").exists(), "MIT split out");
+    assert!(
+        f.path().join("LICENSES/Apache-2.0.txt").exists(),
+        "Apache-2.0 split out"
+    );
+    assert!(
+        !f.path().join("LICENSES/MIT OR Apache-2.0.txt").exists(),
+        "must not write the whole expression as one filename"
+    );
+}
+
+#[test]
+fn existing_md_license_text_is_recognized_not_re_materialized() {
+    // REUSE accepts `LICENSES/<id>.md`; licet must see it as present and not report missing.
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n")
+        .write(
+            "LICENSES/MIT.md",
+            "MIT License\n\nPermission is hereby granted...\n",
+        )
+        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
+        .commit("init");
+    let out = f.licet().arg("lint").output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("missing license texts"),
+        "MIT.md should count as present: {stdout}"
+    );
 }
 
 #[test]

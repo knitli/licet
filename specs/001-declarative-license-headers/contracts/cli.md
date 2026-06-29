@@ -24,9 +24,10 @@ RuleConflict, missing license text} to exit `1`. `Uncovered` (FR-012a) and `Unre
 modified); `3` when some writes succeeded and others failed (FR-021).
 
 `add-license` exit semantics: `0` when every targeted text is present in `LICENSES/`
-afterward; `1` when one or more requested/referenced texts could not be supplied (absent
-from the bundle and not a `LicenseRef-*`, with `--allow-network` not given), naming the
-identifier; `2` on flag misuse (neither identifiers nor `--all` given, or both).
+afterward; `1` when one or more requested/referenced texts could not be supplied (a
+`LicenseRef-*`, or an unbundled standard id not fetched because `--allow-curl` was not given
+and the run was non-interactive), naming the identifier and its path/URL; `2` on flag misuse
+(neither identifiers nor `--all` given, or both).
 
 ## Global flags
 
@@ -93,7 +94,10 @@ licet apply [--additive] [--target-header <index>] [--allow-dirty]
   **`apply --dry-run`** answers "exactly what would `apply` change?" (per-file before/after).
 - Writes missing headers in the file's resolved comment style (FR-011), respecting
   shebang/encoding first-lines (FR-019). Materializes missing standard license texts into
-  `LICENSES/` from the offline bundle; scaffolds `LicenseRef-*` placeholders (FR-017).
+  `LICENSES/` from the offline bundle (against the **post-apply** references). A text that
+  cannot be produced — an unbundled standard id without `--allow-curl`, or any
+  `LicenseRef-*` — is **never** stubbed; it fails the apply (exit `1`) with guidance naming
+  the upstream URL or the path to create (FR-017).
 - On partial failure: exit `3`, report changed vs unchanged files (FR-021).
 
 **Acceptance**: destructive replaces a wrong `LicenseRef-MarqueLicense-1.0` under
@@ -112,12 +116,14 @@ licet init [--from-reuse] [--output <path>]
 ## `lint` — REUSE-compatibility & license-text report (FR-014, FR-017; US5)
 
 ```
-licet lint [--allow-network]
+licet lint
 ```
 - Reports REUSE conformance posture: SPDX headers present, `LICENSES/` completeness,
-  out-of-band coverage for non-annotatable files.
-- Lists referenced-but-missing license texts. Resolves known ids from the **offline
-  bundle**; `--allow-network` permits fetching only ids absent from the bundle (FR-017).
+  out-of-band coverage for non-annotatable files. Read-only: it never writes or fetches.
+- Lists referenced-but-missing license texts with actionable guidance — bundled ids point
+  to `add-license`, other standard ids give the exact SPDX download URL, and `LicenseRef-*`
+  ids name the `LICENSES/<id>.txt` path to create (FR-017). `LICENSES/` texts are recognized
+  under a `.txt`/`.md` suffix or none, matching `reuse`.
 - Reports the embedded **SPDX license-list version** so the compliance posture is auditable
   (FR-028).
 - Exit `1` if the repository would not pass a REUSE-spec compliance check.
@@ -125,7 +131,7 @@ licet lint [--allow-network]
 ## `add-license` (alias `add`) — materialize license texts offline (FR-017, FR-029; US5)
 
 ```
-licet add-license [<SPDX-ID> …] [--all] [--allow-network] [--format …]
+licet add-license [<SPDX-ID> …] [--all] [--allow-curl] [--format …]
 licet add <SPDX-ID> …
 ```
 - Copies referenced license texts into `LICENSES/` from the **embedded bundle** — the
@@ -135,11 +141,14 @@ licet add <SPDX-ID> …
   identifier referenced by the config and existing headers that is **missing** from
   `LICENSES/` (the parallel of `reuse download --all`). Supplying neither — and not
   `--all` — is a usage error → exit `2`; supplying both is also exit `2`.
-- `LicenseRef-*` identifiers are scaffolded as empty placeholder texts for the maintainer to
-  fill in (FR-017); they are never fetched.
-- `--allow-network`: permits fetching identifiers absent from the bundle; without it, an
-  unbundled non-`LicenseRef` identifier cannot be supplied and the run exits `1`, naming it
-  (consistent with `lint`).
+- `LicenseRef-*` identifiers are **never** scaffolded as placeholders (a stub would falsely
+  satisfy REUSE's text-existence check). They cannot be fetched; the run exits `1` naming the
+  `LICENSES/<id>.txt` path for the maintainer to create (FR-017).
+- `--allow-curl`: permits shelling out to the system `curl` to fetch standard ids absent from
+  the bundle (the binary itself ships no network capability — offline-guard invariant — this
+  only runs a `curl` the user already has). Without the flag, an interactive terminal is
+  asked y/N; a non-interactive run leaves the id missing. An unfetched non-`LicenseRef`
+  identifier exits `1`, naming it and its SPDX download URL (consistent with `lint`).
 - Writes **only** under `LICENSES/`: it never modifies source files or `license.toml`, and
   therefore — unlike `apply` — does **not** require a clean working tree. (`apply` still
   materializes texts as a side-effect of annotating; `add-license` exposes that
@@ -150,7 +159,10 @@ licet add <SPDX-ID> …
 ## Behavior guarantees (cross-command)
 
 - **Deterministic**: same inputs → same classification, ordering, and exit code (FR-002).
-- **Offline by default**: no network unless `--allow-network` is passed (FR-017).
+- **Offline by default**: the binary ships no network capability (offline-guard invariant);
+  the only network access is an explicit opt-in that shells out to the user's own `curl`
+  (`--allow-curl`, or an interactive y/N), used solely to fetch standard SPDX texts absent
+  from the bundle (FR-017).
 - **Subset honoring**: when a selection flag is given, only those files are evaluated
   (FR-013), but rule precedence still considers the full ruleset. Selection flags are
   mutually exclusive (FR-027).
