@@ -95,7 +95,10 @@ impl<'a> Engine<'a> {
                 });
             }
             if let Some(l) = &state.actual.detected_license {
-                referenced_ids.insert(l.clone());
+                // The detected value may be a compound expression (`MIT OR Apache-2.0`);
+                // split it into constituent ids so each text is sought separately — never
+                // treat the whole expression as one `LICENSES/<expr>.txt` filename.
+                collect_ids(l, &mut referenced_ids);
             }
             // SPDX-snippet licenses are not the file's license, but their texts must still
             // exist under LICENSES/ for REUSE compliance (FR-030).

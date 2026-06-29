@@ -12,6 +12,12 @@ fn pkl_gets_c_style_header_and_round_trips() {
         "[default]\nlicense=\"LicenseRef-MarqueLicense-1.0\"\n\
          [[comment_style]]\next=\"pkl\"\nstyle=\"c\"\n",
     )
+    // The custom LicenseRef text must exist under LICENSES/ for the repo to be compliant
+    // (licet no longer scaffolds a placeholder).
+    .write(
+        "LICENSES/LicenseRef-MarqueLicense-1.0.txt",
+        "Marque License 1.0\n\nAll rights reserved.\n",
+    )
     .write("hk.pkl", "amends \"...\"\n")
     .commit("init");
 

@@ -159,10 +159,13 @@ diagnostic). Let the in-file header win (rejected — same decision).
 ## 8. Bundled license texts & acquisition (FR-017)
 
 **Decision**: Embed the full SPDX license-text set in the binary at build time. On
-`apply`/`lint`, materialize any referenced-but-missing standard text into `LICENSES/`
-from the bundle **offline**. Network fetch is opt-in (`--allow-network`) and only for
-identifiers absent from the bundle. `LicenseRef-*` custom licenses are **scaffolded as
-placeholder files** for the maintainer to fill.
+`apply`/`add-license`, materialize any referenced-but-missing standard text into `LICENSES/`
+from the bundle **offline**. A text that cannot be produced is **never** stubbed with a
+placeholder — a stub would falsely pass REUSE's text-existence check and read as compliant.
+Instead the run errors with guidance: standard ids give the exact SPDX download URL,
+`LicenseRef-*` ids name the `LICENSES/<id>.txt` path to create. Fetching is opt-in and only
+for standard ids absent from the bundle: the binary ships no network capability (offline-guard
+invariant), so `--allow-curl` (or an interactive y/N) shells out to the user's own `curl`.
 
 **Rationale**: Implements the clarified offline-by-default posture (hermetic CI) while
 still supporting unusual/custom identifiers. Embedding avoids any runtime download for the

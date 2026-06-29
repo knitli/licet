@@ -2,9 +2,11 @@
 //! from the embedded bundle, offline (FR-017, FR-029; US5).
 //!
 //! This is the offline analog of REUSE's `download`: because the SPDX corpus is embedded,
-//! the operation is a copy from the bundle (or a `LicenseRef-*` placeholder scaffold),
-//! never a network fetch. It writes **only** under `LICENSES/` — it never modifies a source
-//! file or `license.toml`, and therefore does not require a clean working tree.
+//! the operation is a copy from the bundle, never a network fetch (a `LicenseRef-*` or an
+//! unbundled standard id is reported missing, never stubbed). Standard ids absent from the
+//! bundle may be fetched only via an explicit opt-in that shells out to the user's own
+//! `curl` (`--allow-curl`, or an interactive y/N). It writes **only** under `LICENSES/` — it
+//! never modifies a source file or `license.toml`, and so does not require a clean tree.
 
 use std::collections::BTreeSet;
 
@@ -56,8 +58,11 @@ pub fn run(args: AddLicenseArgs) -> Result<ExitCode> {
         .collect();
 
     let res = inventory::materialize(&root, &targets)?;
+    // Texts absent from the bundle: fetch standard SPDX ids via `curl` when opted in,
+    // otherwise leave them missing to report with a download link (never stub them).
+    let still_missing = super::resolve_missing_texts(&root, &res.still_missing, args.allow_curl);
     let after = LicenseTextInventory::compute(&root, &targets);
-    let success = res.still_missing.is_empty();
+    let success = still_missing.is_empty();
 
     match args.format {
         Format::Json => {
@@ -93,15 +98,10 @@ pub fn run(args: AddLicenseArgs) -> Result<ExitCode> {
                     println!("  = {id}");
                 }
             }
-            if !res.still_missing.is_empty() {
-                println!("Unavailable offline:");
-                for id in &res.still_missing {
-                    let why = if args.allow_network {
-                        "absent from bundle — network fetch is unavailable in this hermetic build"
-                    } else {
-                        "absent from bundle — needs --allow-network"
-                    };
-                    println!("  ! {id} ({why})");
+            if !still_missing.is_empty() {
+                println!("Could not materialize:");
+                for id in &still_missing {
+                    println!("  ! {}", inventory::missing_text_guidance(id));
                 }
             }
         }
