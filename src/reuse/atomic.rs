@@ -98,6 +98,91 @@ pub fn read_expected_for_write(path: &Path) -> io::Result<Option<Vec<u8>>> {
     }
 }
 
+/// Destination states distinguished without following symlinks.
+enum Dest {
+    Absent,
+    Present { permissions: std::fs::Permissions },
+}
+
+/// Classify the destination without following symlinks; permission/read
+/// failures are errors, never absence (F13). Every refusal (symlink,
+/// non-regular file, unexpected presence/absence/content) aborts before
+/// any byte is staged or written.
+fn classify_destination(
+    dest: &Path,
+    relative: &Path,
+    expected: Option<&[u8]>,
+) -> Result<Dest, WriteError> {
+    match std::fs::symlink_metadata(dest) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            if expected.is_some() {
+                return Err(WriteError::before(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "destination {} disappeared or was never read; refusing to write",
+                        relative.display()
+                    ),
+                )));
+            }
+            Ok(Dest::Absent)
+        }
+        Err(e) => Err(WriteError::before(io::Error::new(
+            e.kind(),
+            format!("cannot stat destination {}: {e}", relative.display()),
+        ))),
+        Ok(meta) => {
+            let ft = meta.file_type();
+            if is_link(&meta) {
+                return Err(WriteError::before(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "refusing to write through symlink destination {}",
+                        relative.display()
+                    ),
+                )));
+            }
+            if !ft.is_file() {
+                return Err(WriteError::before(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "refusing to replace non-regular destination {}",
+                        relative.display()
+                    ),
+                )));
+            }
+            match expected {
+                None => Err(WriteError::before(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    format!(
+                        "destination {} already exists; refusing to create",
+                        relative.display()
+                    ),
+                ))),
+                Some(exp) => {
+                    let current = std::fs::read(dest).map_err(|e| {
+                        WriteError::before(io::Error::new(
+                            e.kind(),
+                            format!("cannot re-read destination {}: {e}", relative.display()),
+                        ))
+                    })?;
+                    if current.as_slice() != exp {
+                        return Err(WriteError::before(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!(
+                                "destination {} changed since it was read; refusing to replace",
+                                relative.display()
+                            ),
+                        )));
+                    }
+                    Ok(Dest::Present {
+                        permissions: meta.permissions(),
+                    })
+                }
+            }
+        }
+    }
+}
+
 /// Atomically replace (or create) `relative` under `root`.
 ///
 /// - `expected = None`: the destination must not exist (creation).
@@ -129,84 +214,7 @@ pub fn atomic_write(
 
     check_ancestors(&canon_root, parent, relative)?;
 
-    // Classify the destination without following symlinks; permission/read
-    // failures are errors, never absence (F13).
-    enum Dest {
-        Absent,
-        Present { permissions: std::fs::Permissions },
-    }
-    let dest_state = match std::fs::symlink_metadata(&dest) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            if expected.is_some() {
-                return Err(WriteError::before(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!(
-                        "destination {} disappeared or was never read; refusing to write",
-                        relative.display()
-                    ),
-                )));
-            }
-            Dest::Absent
-        }
-        Err(e) => {
-            return Err(WriteError::before(io::Error::new(
-                e.kind(),
-                format!("cannot stat destination {}: {e}", relative.display()),
-            )));
-        }
-        Ok(meta) => {
-            let ft = meta.file_type();
-            if is_link(&meta) {
-                return Err(WriteError::before(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "refusing to write through symlink destination {}",
-                        relative.display()
-                    ),
-                )));
-            }
-            if !ft.is_file() {
-                return Err(WriteError::before(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "refusing to replace non-regular destination {}",
-                        relative.display()
-                    ),
-                )));
-            }
-            match expected {
-                None => {
-                    return Err(WriteError::before(io::Error::new(
-                        io::ErrorKind::AlreadyExists,
-                        format!(
-                            "destination {} already exists; refusing to create",
-                            relative.display()
-                        ),
-                    )));
-                }
-                Some(exp) => {
-                    let current = std::fs::read(&dest).map_err(|e| {
-                        WriteError::before(io::Error::new(
-                            e.kind(),
-                            format!("cannot re-read destination {}: {e}", relative.display()),
-                        ))
-                    })?;
-                    if current.as_slice() != exp {
-                        return Err(WriteError::before(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!(
-                                "destination {} changed since it was read; refusing to replace",
-                                relative.display()
-                            ),
-                        )));
-                    }
-                    Dest::Present {
-                        permissions: meta.permissions(),
-                    }
-                }
-            }
-        }
-    };
+    let dest_state = classify_destination(&dest, relative, expected)?;
 
     // Exclusively-created temp file in the destination directory: random name, so
     // a pre-existing predictable `<name>.licet.tmp` (regular file or symlink) is

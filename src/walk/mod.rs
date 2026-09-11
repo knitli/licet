@@ -118,44 +118,36 @@ pub fn prepare(
                 (None, _) => walk_worktree(&root)?,
             };
             let snapshot = Snapshot::Worktree { root: root.clone() };
-            let config_text = read_config_text(
-                &snapshot,
-                &root,
+            assemble(
+                Assembly {
+                    root,
+                    source: crate::domain::ContentSource::Worktree,
+                    snapshot,
+                    universe,
+                    expanded: false,
+                    note: None,
+                },
                 config_rel.as_deref(),
                 purpose,
                 allow_missing_config,
-            )?;
-            let paths = mark_sorted(&root, &snapshot, &universe)?;
-            Ok(Prepared {
-                root,
-                source: crate::domain::ContentSource::Worktree,
-                snapshot,
-                paths,
-                expanded: false,
-                expansion_note: None,
-                config_text,
-            })
+            )
         }
         Selection::Files(files) => {
             let universe = normalize_file_list(&root, cwd, files)?;
             let snapshot = Snapshot::Worktree { root: root.clone() };
-            let config_text = read_config_text(
-                &snapshot,
-                &root,
+            assemble(
+                Assembly {
+                    root,
+                    source: crate::domain::ContentSource::Worktree,
+                    snapshot,
+                    universe,
+                    expanded: false,
+                    note: None,
+                },
                 config_rel.as_deref(),
                 purpose,
                 allow_missing_config,
-            )?;
-            let paths = mark_sorted(&root, &snapshot, &universe)?;
-            Ok(Prepared {
-                root,
-                source: crate::domain::ContentSource::Worktree,
-                snapshot,
-                paths,
-                expanded: false,
-                expansion_note: None,
-                config_text,
-            })
+            )
         }
         Selection::Staged => {
             let repo = repo.ok_or_else(|| {
@@ -168,23 +160,19 @@ pub fn prepare(
                 // path set: edits must never spill beyond it, and the index is
                 // never written.
                 let snapshot = Snapshot::Worktree { root: root.clone() };
-                let config_text = read_config_text(
-                    &snapshot,
-                    &root,
+                return assemble(
+                    Assembly {
+                        root,
+                        source: crate::domain::ContentSource::Worktree,
+                        snapshot,
+                        universe: subset,
+                        expanded: false,
+                        note: None,
+                    },
                     config_rel.as_deref(),
                     Purpose::Policy,
                     allow_missing_config,
-                )?;
-                let paths = mark_sorted(&root, &snapshot, &subset)?;
-                return Ok(Prepared {
-                    root,
-                    source: crate::domain::ContentSource::Worktree,
-                    snapshot,
-                    paths,
-                    expanded: false,
-                    expansion_note: None,
-                    config_text,
-                });
+                );
             }
             // An unresolved merge poisons the whole index snapshot, not just the
             // evaluated subset.
@@ -206,23 +194,19 @@ pub fn prepare(
             let extra: Vec<PathBuf> = config_rel.clone().into_iter().collect();
             index.prefetch(&repo.root, &universe, &extra)?;
             let snapshot = Snapshot::Index(index);
-            let config_text = read_config_text(
-                &snapshot,
-                &root,
+            assemble(
+                Assembly {
+                    root,
+                    source: crate::domain::ContentSource::Index,
+                    snapshot,
+                    universe,
+                    expanded,
+                    note,
+                },
                 config_rel.as_deref(),
                 purpose,
                 allow_missing_config,
-            )?;
-            let paths = mark_sorted(&root, &snapshot, &universe)?;
-            Ok(Prepared {
-                root,
-                source: crate::domain::ContentSource::Index,
-                snapshot,
-                paths,
-                expanded,
-                expansion_note: note,
-                config_text,
-            })
+            )
         }
         Selection::Changed(rev) => {
             let repo = repo.ok_or_else(|| {
@@ -240,25 +224,61 @@ pub fn prepare(
                 maybe_expand(&index, subset, &deleted, config_rel.as_deref())
             };
             let snapshot = Snapshot::Worktree { root: root.clone() };
-            let config_text = read_config_text(
-                &snapshot,
-                &root,
+            assemble(
+                Assembly {
+                    root,
+                    source: crate::domain::ContentSource::Worktree,
+                    snapshot,
+                    universe,
+                    expanded,
+                    note,
+                },
                 config_rel.as_deref(),
                 purpose,
                 allow_missing_config,
-            )?;
-            let paths = mark_sorted(&root, &snapshot, &universe)?;
-            Ok(Prepared {
-                root,
-                source: crate::domain::ContentSource::Worktree,
-                snapshot,
-                paths,
-                expanded,
-                expansion_note: note,
-                config_text,
-            })
+            )
         }
     }
+}
+
+/// A selection arm's resolved inputs, before the shared assembly tail reads
+/// the config and marks REUSE-ignore status.
+struct Assembly {
+    root: PathBuf,
+    source: crate::domain::ContentSource,
+    snapshot: Snapshot,
+    universe: Vec<PathBuf>,
+    expanded: bool,
+    note: Option<String>,
+}
+
+/// Shared assembly tail for every selection arm: read the config through the
+/// same snapshot that supplies file bytes, mark REUSE-ignore status, and pack
+/// the evaluation plan. One place, so snapshot/config/marking can never drift
+/// between selections.
+fn assemble(
+    a: Assembly,
+    config_rel: Option<&Path>,
+    purpose: Purpose,
+    allow_missing_config: bool,
+) -> Result<Prepared> {
+    let config_text = read_config_text(
+        &a.snapshot,
+        &a.root,
+        config_rel,
+        purpose,
+        allow_missing_config,
+    )?;
+    let paths = mark_sorted(&a.root, &a.snapshot, &a.universe)?;
+    Ok(Prepared {
+        root: a.root,
+        source: a.source,
+        snapshot: a.snapshot,
+        paths,
+        expanded: a.expanded,
+        expansion_note: a.note,
+        config_text,
+    })
 }
 
 /// Resolve the config argument to a root-relative path when it stays inside the

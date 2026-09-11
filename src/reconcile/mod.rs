@@ -75,47 +75,41 @@ impl PlanError {
     }
 }
 
-/// Plan a file's reconciliation toward `intent` in the given `style`.
-///
-/// Edits are span-based: license values are replaced at the exact byte spans
-/// carried from detection, and appended lines are anchored to existing tag
-/// lines with closers derived from `style` — never from re-parsed trailing
-/// code. Copyright lines are never touched (FR-009). Returns [`PlanError`]
-/// instead of guessing when the target block cannot be edited safely.
-pub fn plan_file(
+/// Plan the insert for a file with no in-file header, carrying the full intent.
+/// A license already satisfied out-of-band needs no in-file record.
+fn plan_missing_header(
     content: &str,
-    actual: &ActualLicenseState,
     intent: &LicenseIntent,
     style: &CommentSyntax,
     mode: ChangeMode,
-    target_header: Option<usize>,
-) -> Result<PlannedChange, PlanError> {
-    let candidates = candidate_licenses(actual);
-    let license_ok = candidates
-        .iter()
-        .any(|c| spdx::expressions_equal(c, &intent.license_expression));
-
-    // No in-file header → insert one carrying the full intent.
-    if actual.headers.is_empty() {
-        if license_ok {
-            // Covered out-of-band: nothing in-file to do.
-            return Ok(PlannedChange::noop(mode));
-        }
-        let copyrights = copyrights_to_write(&[], &intent.copyright_policy);
-        let header = comment::render_header(style, &intent.license_expression, &copyrights);
-        let new_content = insert::insert_header(content, &header);
-        return Ok(PlannedChange {
-            new_content: Some(new_content),
-            mode,
-            target_header: None,
-            wrote_header: true,
-            preserved_copyrights: copyrights.len(),
-            contradiction: false,
-        });
+    license_ok: bool,
+) -> PlannedChange {
+    if license_ok {
+        // Covered out-of-band: nothing in-file to do.
+        return PlannedChange::noop(mode);
     }
+    let copyrights = copyrights_to_write(&[], &intent.copyright_policy);
+    let header = comment::render_header(style, &intent.license_expression, &copyrights);
+    let new_content = insert::insert_header(content, &header);
+    PlannedChange {
+        new_content: Some(new_content),
+        mode,
+        target_header: None,
+        wrote_header: true,
+        preserved_copyrights: copyrights.len(),
+        contradiction: false,
+    }
+}
 
-    // Edit an existing header block. An explicit index is validated, never
-    // clamped: silently editing a different block than requested corrupts.
+/// Resolve which detected header block to edit and prove its recorded spans
+/// still address the file: an explicit out-of-range index, an out-of-bounds
+/// byte range, or a value/span count mismatch is an invalid target, never a
+/// guess at a different block.
+fn resolve_target_block<'a>(
+    actual: &'a ActualLicenseState,
+    target_header: Option<usize>,
+    content: &str,
+) -> Result<(usize, &'a HeaderBlock), PlanError> {
     let idx = match target_header {
         Some(t) if t >= actual.headers.len() => {
             return Err(PlanError::invalid(format!(
@@ -144,6 +138,40 @@ pub fn plan_file(
             block.copyright_spans.len()
         )));
     }
+    Ok((idx, block))
+}
+
+/// Plan a file's reconciliation toward `intent` in the given `style`.
+///
+/// Edits are span-based: license values are replaced at the exact byte spans
+/// carried from detection, and appended lines are anchored to existing tag
+/// lines with closers derived from `style` — never from re-parsed trailing
+/// code. Copyright lines are never touched (FR-009). Returns [`PlanError`]
+/// instead of guessing when the target block cannot be edited safely.
+pub fn plan_file(
+    content: &str,
+    actual: &ActualLicenseState,
+    intent: &LicenseIntent,
+    style: &CommentSyntax,
+    mode: ChangeMode,
+    target_header: Option<usize>,
+) -> Result<PlannedChange, PlanError> {
+    let candidates = candidate_licenses(actual);
+    let license_ok = candidates
+        .iter()
+        .any(|c| spdx::expressions_equal(c, &intent.license_expression));
+
+    // No in-file header → insert one carrying the full intent.
+    if actual.headers.is_empty() {
+        return Ok(plan_missing_header(
+            content, intent, style, mode, license_ok,
+        ));
+    }
+
+    // Edit an existing header block. An explicit index is validated, never
+    // clamped: silently editing a different block than requested corrupts.
+    let (idx, block) = resolve_target_block(actual, target_header, content)?;
+    let (start, end) = block.byte_range;
     let preserved = block.copyrights.len();
 
     // Copyright intent applies even when the license already matches (FR-007):

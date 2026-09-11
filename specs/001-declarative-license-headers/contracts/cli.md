@@ -160,6 +160,7 @@ licet init [--from-reuse] [--output <path>] [--config <path>] [--force] [--forma
 ```
 licet lint [--allow-network] [--config <path>]
 ```
+
 - Reports REUSE conformance posture over **actual** metadata, independently of any
   declared policy: every covered file needs a license expression and a copyright
   notice (`missing_license` / `missing_copyright` diagnostics), malformed values

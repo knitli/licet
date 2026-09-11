@@ -21,6 +21,28 @@ use crate::reuse::inventory::LicenseTextInventory;
 use crate::spdx;
 use crate::walk::{Purpose, Selection, discover_root, prepare};
 
+/// Validate an explicitly supplied `--config`: it must exist and parse, and
+/// its acceptance is reported as deprecated-and-ignored, since lint validates
+/// actual REUSE metadata rather than declared policy.
+fn check_explicit_config(cwd: &Path, cfg_path: &Path) -> Result<()> {
+    let abs = if cfg_path.is_absolute() {
+        cfg_path.to_path_buf()
+    } else {
+        cwd.join(cfg_path)
+    };
+    let text = std::fs::read_to_string(&abs).map_err(|e| {
+        LicetError::Config(format!(
+            "cannot read explicit lint config `{}`: {e}",
+            abs.display()
+        ))
+    })?;
+    LicensingConfiguration::from_toml(&text)?;
+    eprintln!(
+        "warning: `lint --config` is deprecated and ignored: lint validates actual REUSE metadata, not declared policy"
+    );
+    Ok(())
+}
+
 pub fn run(args: LintArgs) -> Result<ExitCode> {
     let cwd = std::env::current_dir()?;
     let (root, _) = discover_root(&cwd)?;
@@ -29,21 +51,7 @@ pub fn run(args: LintArgs) -> Result<ExitCode> {
     // otherwise); it is accepted with a deprecation notice but never changes
     // REUSE evaluation.
     if let Some(cfg_path) = &args.config {
-        let abs = if cfg_path.is_absolute() {
-            cfg_path.clone()
-        } else {
-            cwd.join(cfg_path)
-        };
-        let text = std::fs::read_to_string(&abs).map_err(|e| {
-            LicetError::Config(format!(
-                "cannot read explicit lint config `{}`: {e}",
-                abs.display()
-            ))
-        })?;
-        LicensingConfiguration::from_toml(&text)?;
-        eprintln!(
-            "warning: `lint --config` is deprecated and ignored: lint validates actual REUSE metadata, not declared policy"
-        );
+        check_explicit_config(&cwd, cfg_path)?;
     }
 
     // REUSE validation covers tracked plus nonignored untracked files and never

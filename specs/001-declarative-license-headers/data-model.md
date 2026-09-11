@@ -173,9 +173,9 @@ reference REUSE 6.2.0 tool). License and copyright resolve independently:
 `candidate_licenses()` is the single precedence-aware resolver both `classify` and
 `reconcile` consult, so the rule is applied in exactly one place. `REUSE.toml` path
 patterns use the REUSE grammar (`*` never crosses `/`, `**` does, only `\`-escapes are
-special, `?[]{} ` are literal); dep5 `Files:` patterns are shell-style (`*` crosses `/`).
+special, `?[]{}` are literal); dep5 `Files:` patterns are shell-style (`*` crosses `/`).
 
-**HeaderBlock**
+### HeaderBlock
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -265,7 +265,7 @@ The computed result of a `check` (read-only) or `apply` (writing) run.
 | `writes` | list of write records | Independent of file states: one record per planned/applied/failed/blocked write with destination, kind, outcome, covered files, and exact text for text writes (FR-021). |
 | `summary` | `{ pass, partial, complete, before_pass, projected_pass, counts }` | `counts` holds per-`DriftClass` totals **plus** `conflicts` and `contradictions`; `partial` (FR-021) and `pass` (FR-012a, SC-009) live here too. `complete` is false when final verification did not run; `before_pass` is the pre-apply gate; dry-run `pass` means `projected_pass`. Drives the exit code. This is the canonical shape; `report.schema.json` matches it. |
 
-**PlannedWrite / write record**
+### PlannedWrite / write record
 
 | Field | Type | Notes |
 |-------|------|-------|
