@@ -3,7 +3,7 @@
 The tool is a single binary named `licet` (Latin "it is permitted" — the root of
 "license"). Text I/O contract:
 arguments → stdout for results, errors/diagnostics → stderr. Every command accepts
-`--format human|json` (default `human`) and `--config <path>` (default `./license.toml`).
+`--format human|json` (default `human`) and `--config <path>` (default `./licet.toml`).
 
 ## Exit codes
 
@@ -11,7 +11,7 @@ arguments → stdout for results, errors/diagnostics → stderr. Every command a
 |------|---------|---------|
 | `0` | Success / fully compliant — no drift, no uncovered files | `check`, `apply`, `lint`, `add-license` |
 | `1` | Drift or violations found (non-compliant) | `check`, `lint`, `add-license` |
-| `2` | Usage / configuration error (bad flags, invalid `license.toml`) | all |
+| `2` | Usage / configuration error (bad flags, invalid config) | all |
 | `3` | Partial apply — some files changed, some failed (FR-021) | `apply` |
 
 `check` maps any of {WrongLicense, MissingHeader, Uncovered, Unreadable, unresolved
@@ -43,7 +43,7 @@ expression) — raised before any directory is created or any download is attemp
 
 | Flag | Description |
 |------|-------------|
-| `--config <path>` | Path to declarative config (default `./license.toml`). |
+| `--config <path>` | Path to declarative config (default `./licet.toml`). A legacy `./license.toml` is not defaulted to (exit 2 names the rename); an explicit path reads any name. |
 | `--format human\|json` | Output rendering. `json` conforms to `report.schema.json`. |
 | `--files <a> <b> …` / `--files-from <file>` / `-` (stdin) | Restrict evaluation to a supplied subset (FR-013). Paths are relative to the invocation cwd (or absolute), normalized lexically; outside-root and nonregular inputs are usage errors, symlinks are ignored like everywhere else. |
 | `--staged` | Restrict to git-staged files (commit-hook mode, FR-013). `check --staged` evaluates **index blobs** — including staged metadata, config, and license texts — so the gate sees the commit as it would land; `apply --staged` uses the staged **path set** but edits working-tree files and never stages its edits. |
@@ -145,7 +145,7 @@ licet init [--from-reuse] [--output <path>] [--config <path>] [--force] [--forma
   observation with the real rule resolver before anything is written, and a
   validation failure writes nothing.
 - Does not modify source files; writes only the config. Destination: `--output`,
-  else explicit `--config`, else `<root>/license.toml` (explicit relative paths
+  else explicit `--config`, else `<root>/licet.toml` (explicit relative paths
   resolve from the invocation cwd; an explicit destination outside the project
   authorizes only that config file). Create-new is the default: an existing
   destination (file or symlink) is refused with exit `2` unless `--force`
@@ -168,7 +168,7 @@ licet lint [--allow-network] [--config <path>]
 - Covers tracked **plus** nonignored untracked files in a repository (the policy
   gate's tracked-only default does not apply), and never applies declaration
   `[exclude]` rules — a config exclusion cannot hide a file from whole-project
-  REUSE validation. Needs no configuration: an auto-discovered `license.toml` is
+  REUSE validation. Needs no configuration: an auto-discovered `licet.toml` is
   just another covered file. An explicit `--config <path>` must exist and parse
   (exit `2` otherwise); it is accepted with a deprecation notice and never changes
   evaluation.
@@ -209,7 +209,7 @@ licet add <SPDX-ID> …
   never deletes or truncates the destination. Without it, an unbundled non-`LicenseRef`
   identifier cannot be supplied and the run exits `1`, naming it (consistent with `lint`).
   Bundled texts never invoke the network.
-- Writes **only** under `LICENSES/`: it never modifies source files or `license.toml`, and
+- Writes **only** under `LICENSES/`: it never modifies source files or `licet.toml`, and
   therefore — unlike `apply` — does **not** require a clean working tree. (`apply` still
   materializes texts as a side-effect of annotating; `add-license` exposes that
   materialization standalone, without touching headers.)
@@ -247,7 +247,7 @@ licet add <SPDX-ID> …
 - **Path bases**: explicit file arguments are relative to the invocation cwd;
   declaration selectors and metadata paths are relative to their documented
   base. An omitted `--config` resolves from the discovered root
-  (`<root>/license.toml`); an explicit relative `--config` stays cwd-relative.
+  (`<root>/licet.toml`); an explicit relative `--config` stays cwd-relative.
 - **Output streams**: `--format json` prints exactly one serialized document to
   stdout; progress, prompts, and human diagnostics go to stderr. The tool never
   prompts implicitly — automation never stalls; network happens only with an
@@ -270,8 +270,10 @@ licet add <SPDX-ID> …
 - Additive drift: `licet apply --additive` keeps old identifiers; when the
   combination still differs from intent it exits `1` with a residual-drift
   diagnostic — success of the writes, failure of the gate.
-- Safe init: `licet init` refuses to overwrite `license.toml`; re-run with
-  `licet init --force`.
+- Safe init: `licet init` refuses to overwrite `licet.toml`; re-run with
+  `licet init --force`. With no `--output`/`--config` and only a legacy
+  `license.toml` present, `init` refuses (exit `2`) instead of writing a
+  competing default — rename first.
 - Preview: `licet apply --dry-run` lists every planned/applied write with
   before/after text and exits nonzero when the projected gate fails — running
   the real `apply` afterwards produces those exact bytes.

@@ -1,6 +1,6 @@
 //! `init` — derive a config from current repository state (FR-018; US5).
 //!
-//! Inspects existing headers and `REUSE.toml`/`.reuse/dep5`, then emits a `license.toml`
+//! Inspects existing headers and `REUSE.toml`/`.reuse/dep5`, then emits a `licet.toml`
 //! whose projection reproduces current licensing. Preservation outranks brevity:
 //! every observed file first becomes an exact-path rule, and rules compress to an
 //! extension group only when every observed path they would match carries the same
@@ -13,7 +13,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::{Format, InitArgs};
-use crate::config::LicensingConfiguration;
+use crate::config::{
+    CONFIG_FILENAME, LicensingConfiguration, has_legacy_only_config, legacy_config_error,
+};
 use crate::detect;
 use crate::error::{ExitCode, LicetError, Result};
 use crate::report::{Counts, Diagnostic, Report, Summary, WriteEntry};
@@ -32,20 +34,25 @@ pub fn run(args: InitArgs) -> Result<ExitCode> {
     let cwd = std::env::current_dir()?;
     let (root, _) = discover_root(&cwd)?;
 
-    // Destination: `--output`, else explicit `--config`, else `<root>/license.toml`.
+    // Destination: `--output`, else explicit `--config`, else `<root>/licet.toml`.
     // Explicit relative paths resolve from the invocation cwd.
     let explicit = args.output.clone().or(args.config.clone());
     let abs_out = match &explicit {
         Some(p) if p.is_absolute() => p.clone(),
         Some(p) => cwd.join(p),
-        None => root.join("license.toml"),
+        None => root.join(CONFIG_FILENAME),
     };
+    // Never write a competing default next to a legacy config: the legacy
+    // file would be silently ignored from then on. Rename first.
+    if explicit.is_none() && has_legacy_only_config(&root) {
+        return Err(legacy_config_error(&root));
+    }
 
     // Init observes working-tree state; declaration excludes do not apply to
     // observation (there is no config yet to declare them).
     let prep = walk::prepare(
         &cwd,
-        Path::new("license.toml"),
+        Path::new(CONFIG_FILENAME),
         &Selection::FullTree,
         Purpose::Lint,
         true,
@@ -424,7 +431,7 @@ fn display_path(root: &Path, abs: &Path) -> String {
     }
 }
 
-/// Serializable shape of the generated `license.toml`. Emitted via the `toml` crate so any
+/// Serializable shape of the generated `licet.toml`. Emitted via the `toml` crate so any
 /// license id, extension, or path is correctly quoted/escaped — hand-rolled `"{d}"`
 /// interpolation previously produced invalid TOML for values containing quotes,
 /// backslashes, or newlines.

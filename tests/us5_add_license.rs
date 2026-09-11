@@ -398,7 +398,7 @@ fn writes_only_under_licenses_and_does_not_require_clean_tree() {
     // Make the tree dirty — unlike `apply`, `add-license` must still proceed.
     f.write("a.rs", "fn a(){ /* edited */ }\n");
     let before = f.read("a.rs");
-    let before_cfg = f.read("license.toml");
+    let before_cfg = f.read("licet.toml");
 
     let out = f.licet().args(["add", "MIT"]).output().unwrap();
     assert_eq!(
@@ -409,11 +409,7 @@ fn writes_only_under_licenses_and_does_not_require_clean_tree() {
     );
     // Source file and config are untouched; only LICENSES/ changed.
     assert_eq!(f.read("a.rs"), before, "source file must be untouched");
-    assert_eq!(
-        f.read("license.toml"),
-        before_cfg,
-        "config must be untouched"
-    );
+    assert_eq!(f.read("licet.toml"), before_cfg, "config must be untouched");
     assert!(f.path().join("LICENSES/MIT.txt").exists());
 }
 

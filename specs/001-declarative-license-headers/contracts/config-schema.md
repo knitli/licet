@@ -1,14 +1,21 @@
-# Configuration Contract: `license.toml`
+# Configuration Contract: `licet.toml`
 
 The single declarative source of truth (FR-001). Parsed by `src/config` via `serde`/`toml`
 into the `LicensingConfiguration` entity (see `data-model.md`). Lives at repo root; path
 overridable with `--config`.
 
-`license.toml` is the **only authoring surface** for licensing intent. `REUSE.toml`/
+`licet.toml` is the **only authoring surface** for licensing intent. `REUSE.toml`/
 `.reuse/dep5` are read for interop and actual-license detection only (their REUSE 3.3
 `precedence` decides detection when they disagree with an in-file header — `closest` by
 default, FR-003a); they are never hand-authored as the declarative config. This reflects the maintainer's view that `REUSE.toml`, while TOML, is
 not designed for declarative intent.
+
+The file is named `licet.toml` rather than `license.toml` on purpose: names
+containing `license` are claimed by license-detection heuristics (GitHub
+licensee, REUSE tooling), which misread a declarative config as a license
+text. A pre-rename `license.toml` is never picked up by default — commands
+fail with a usage error naming the rename — but an explicit
+`--config license.toml` still reads any named path.
 
 ## Top-level structure
 

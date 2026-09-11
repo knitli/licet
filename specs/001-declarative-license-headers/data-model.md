@@ -24,7 +24,7 @@ Per-file pipeline:
 
 ## 1. LicensingConfiguration
 
-The single declarative source of truth (FR-001). Loaded from `license.toml`.
+The single declarative source of truth (FR-001). Loaded from `licet.toml`.
 
 | Field | Type | Notes |
 |-------|------|-------|

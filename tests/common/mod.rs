@@ -66,9 +66,9 @@ impl Fixture {
         self
     }
 
-    /// Write `license.toml`.
+    /// Write `licet.toml`.
     pub fn config(&self, toml: &str) -> &Self {
-        self.write("license.toml", toml)
+        self.write("licet.toml", toml)
     }
 
     /// Write bundled `LICENSES/<id>.txt` texts (policy `check` requires the

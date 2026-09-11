@@ -48,7 +48,7 @@ fn uncovered_report_human() {
 #[test]
 fn compliant_report_human() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.py", "# SPDX-License-Identifier: MIT\nx=1\n")
         .texts(&["MIT"])
         .commit("init");

@@ -25,7 +25,7 @@ fn init_generates_config_reproducing_current_licensing() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let cfg = f.read("license.toml");
+    let cfg = f.read("licet.toml");
     // Most common license (MIT) becomes the default; rust (Apache) becomes an ext rule.
     assert!(cfg.contains("[default]") && cfg.contains("MIT"), "{cfg}");
     assert!(
@@ -151,7 +151,7 @@ fn matrix_fixture(root_doc: Option<&str>, sub_doc: Option<&str>, file: &str) -> 
 
 fn check_file(f: &Fixture, intent: &str) -> serde_json::Value {
     std::fs::write(
-        f.path().join("license.toml"),
+        f.path().join("licet.toml"),
         format!("[default]\nlicense=\"{intent}\"\n"),
     )
     .unwrap();
@@ -344,7 +344,7 @@ fn precedence_matrix_sidecar_beats_source() {
         )
         .commit("init");
     std::fs::write(
-        f.path().join("license.toml"),
+        f.path().join("licet.toml"),
         "[default]\nlicense=\"Apache-2.0\"\n",
     )
     .unwrap();
@@ -408,7 +408,7 @@ fn staged_nested_reuse_toml_reads_index_bytes() {
     // Nested metadata participates in the staged snapshot: prefetched index
     // blobs, never the working copy.
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("sub/f.rs", "// SPDX-License-Identifier: MIT\n")
         .write(
             "sub/REUSE.toml",
@@ -666,7 +666,7 @@ fn warning_kinds(v: &serde_json::Value) -> Vec<String> {
 
 #[test]
 fn lint_succeeds_without_any_config_when_metadata_complete() {
-    // REUSE validation is declaration-independent: no license.toml at all.
+    // REUSE validation is declaration-independent: no licet.toml at all.
     let f = Fixture::new();
     f.write(
         "a.rs",
@@ -827,9 +827,9 @@ fn lint_explicit_config_missing_or_malformed_is_usage_error() {
         "LICENSES/MIT.txt",
         licet::spdx::bundled_text("MIT").unwrap(),
     );
-    for cfg in ["does/not-exist.toml", "license.toml"] {
-        if cfg == "license.toml" {
-            f.write("license.toml", "[default\nbroken\n");
+    for cfg in ["does/not-exist.toml", "licet.toml"] {
+        if cfg == "licet.toml" {
+            f.write("licet.toml", "[default\nbroken\n");
         }
         let out = f.licet().args(["lint", "--config", cfg]).output().unwrap();
         assert_eq!(out.status.code(), Some(2), "explicit config {cfg}");
@@ -846,7 +846,7 @@ fn lint_explicit_valid_config_is_accepted_but_ignored() {
     // The declared Apache intent is irrelevant: actual MIT metadata validates.
     let out = f
         .licet()
-        .args(["lint", "--format", "json", "--config", "license.toml"])
+        .args(["lint", "--format", "json", "--config", "licet.toml"])
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(0));
@@ -856,11 +856,11 @@ fn lint_explicit_valid_config_is_accepted_but_ignored() {
 
 #[test]
 fn lint_annotated_but_malformed_policy_toml_is_covered_file() {
-    // An auto-discovered license.toml that fails to parse is not a lint
+    // An auto-discovered licet.toml that fails to parse is not a lint
     // blocker: with its own SPDX tags it validates like any covered file.
     let f = Fixture::new();
     f.write(
-        "license.toml",
+        "licet.toml",
         "# SPDX-License-Identifier: MIT\n# SPDX-FileCopyrightText: 2026 Acme\n[default\nbroken\n",
     )
     .write(
@@ -940,7 +940,7 @@ fn init_round_trip_preserves_all_observed_licensing() {
         "init succeeds: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    std::fs::copy(f.path().join("gen.toml"), f.path().join("license.toml")).unwrap();
+    std::fs::copy(f.path().join("gen.toml"), f.path().join("licet.toml")).unwrap();
 
     let out = f
         .licet()
@@ -1003,7 +1003,7 @@ fn init_refuses_overwrite_without_force() {
 
     let out = f.licet().arg("init").output().unwrap();
     assert_eq!(out.status.code(), Some(0));
-    let first = f.read("license.toml");
+    let first = f.read("licet.toml");
 
     let out = f.licet().arg("init").output().unwrap();
     assert_eq!(
@@ -1011,7 +1011,7 @@ fn init_refuses_overwrite_without_force() {
         Some(2),
         "second init refuses without --force"
     );
-    assert_eq!(f.read("license.toml"), first, "existing config untouched");
+    assert_eq!(f.read("licet.toml"), first, "existing config untouched");
     assert_eq!(
         f.read("a.rs"),
         "// SPDX-License-Identifier: MIT\nfn a(){}\n",
@@ -1026,7 +1026,7 @@ fn init_refuses_overwrite_without_force() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert_eq!(
-        f.read("license.toml"),
+        f.read("licet.toml"),
         first,
         "identical intent → identical bytes"
     );
@@ -1110,7 +1110,7 @@ fn init_handles_quote_paths() {
         "quoted path generates: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    std::fs::copy(f.path().join("gen.toml"), f.path().join("license.toml")).unwrap();
+    std::fs::copy(f.path().join("gen.toml"), f.path().join("licet.toml")).unwrap();
     let out = f
         .licet()
         .args(["check", "--format", "json", "--files", "we\"ird.rs"])

@@ -29,7 +29,7 @@ fn staged_subset_blocks_on_drift_and_names_file() {
 #[test]
 fn compliant_staged_set_passes() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .commit("baseline");
     f.write("ok.rs", "// SPDX-License-Identifier: MIT\nfn o(){}\n")
         .texts(&["MIT"])
@@ -46,7 +46,7 @@ fn compliant_staged_set_passes() {
 #[test]
 fn staged_check_reads_index_bytes() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("f.rs", "// SPDX-License-Identifier: MIT\n")
         .commit("base");
     f.write("f.rs", "// SPDX-License-Identifier: Apache-2.0\n")
@@ -80,7 +80,7 @@ fn index_tree(f: &Fixture) -> String {
 fn staged_check_reverse_content_case() {
     // Index says MIT (compliant), worktree says Apache: the gate sees the index.
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("f.rs", "// SPDX-License-Identifier: Apache-2.0\n")
         .texts(&["MIT", "Apache-2.0"])
         .commit("base");
@@ -135,7 +135,7 @@ fn non_utf8_file_is_unreadable_and_fails_gate() {
 fn file_selection_normalizes_dot_segments() {
     // `src/x.rs`, `./src/x.rs`, and `src/../src/x.rs` name one file.
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("src/x.rs", "fn x(){}\n")
         .commit("init");
     for spelling in ["src/x.rs", "./src/x.rs", "src/../src/x.rs"] {
@@ -155,7 +155,7 @@ fn file_selection_normalizes_dot_segments() {
 #[test]
 fn file_selection_from_subdirectory() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.rs", "fn a(){}\n")
         .write("sub/b.rs", "fn b(){}\n")
         .commit("init");
@@ -201,7 +201,7 @@ fn file_selection_rejects_outside_root() {
 fn file_selection_skips_symlinks_regardless_of_order() {
     use std::os::unix::fs::symlink;
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("real.rs", "// SPDX-License-Identifier: MIT\n")
         .texts(&["MIT"])
         .commit("init");
@@ -247,7 +247,7 @@ fn file_selection_skips_symlinks_regardless_of_order() {
 fn non_utf8_filename_survives_selection() {
     use std::os::unix::ffi::OsStringExt;
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .commit("init");
     // Latin-1 `caf\xe9.rs`: not valid UTF-8, but a real tracked file.
     let name = std::ffi::OsString::from_vec(b"caf\xe9.rs".to_vec());
@@ -274,7 +274,7 @@ fn non_utf8_filename_survives_selection() {
 fn literal_backslash_is_not_a_separator() {
     // A Unix filename containing a literal backslash must not be split.
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .commit("init");
     std::fs::write(f.path().join("a\\b.rs"), b"fn x() {}\n").unwrap();
     f.git(&["add", "-A"]);
@@ -296,7 +296,7 @@ fn reuse_ignore_matrix() {
     // A root file literally named `LICENSES` is covered (not ignored); it gets
     // its own fixture because `LICENSES/` is a directory everywhere else here.
     let g = Fixture::new();
-    g.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    g.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("LICENSES", "I am an ordinary covered file\n")
         .commit("init");
     let out = g
@@ -316,7 +316,7 @@ fn reuse_ignore_matrix() {
     );
 
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("LICENSES/MIT.txt", mit)
         .write("COPYING", "x\n")
         .write("LICENSE-MIT", "x\n")
@@ -378,7 +378,7 @@ fn reuse_ignore_matrix() {
 #[test]
 fn lint_ignores_declaration_exclusions_but_sees_untracked() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\", \"hide.rs\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\", \"hide.rs\"]\n")
         .write("ok.rs", "// SPDX-License-Identifier: MIT\n")
         .write("hide.rs", "fn h(){}\n")
         .texts(&["MIT"])
@@ -405,7 +405,7 @@ fn lint_ignores_declaration_exclusions_but_sees_untracked() {
 #[test]
 fn tracked_gitignored_file_stays_covered() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.rs", "fn a(){}\n")
         .commit("init");
     // A later ignore rule cannot drop a tracked file from policy coverage.
@@ -433,7 +433,7 @@ fn linked_worktree_dot_git_file_not_scanned() {
     // In a linked worktree `.git` is a control FILE and enumeration comes from
     // `ls-files`, so internals can never leak into coverage.
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("ok.rs", "// SPDX-License-Identifier: MIT\n")
         .texts(&["MIT"])
         .commit("init");
@@ -470,7 +470,7 @@ fn linked_worktree_dot_git_file_not_scanned() {
 #[test]
 fn git_internals_never_evaluated() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("ok.rs", "// SPDX-License-Identifier: MIT\n")
         .texts(&["MIT"])
         .commit("init");
@@ -517,7 +517,7 @@ fn selection_flags_are_mutually_exclusive() {
 fn staged_check_on_unborn_head_evaluates_index() {
     // No commit exists: the staged set is the full index.
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("f.rs", "// SPDX-License-Identifier: MIT\n")
         .texts(&["MIT"])
         .stage_all();
@@ -541,7 +541,7 @@ fn staged_check_on_unborn_head_evaluates_index() {
 #[test]
 fn staged_rename_evaluates_new_path() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.rs", "// SPDX-License-Identifier: MIT\n")
         .texts(&["MIT"])
         .commit("base");
@@ -565,7 +565,7 @@ fn staged_rename_evaluates_new_path() {
 #[test]
 fn unresolved_merge_index_is_usage_error() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("m.rs", "// base\n")
         .commit("base");
     f.git(&["checkout", "-qb", "side"]);
@@ -594,7 +594,7 @@ fn unresolved_merge_index_is_usage_error() {
 #[test]
 fn staged_sidecar_supersedes_worktree_sidecar() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
         .texts(&["MIT", "Apache-2.0"])
         .commit("base");
@@ -630,7 +630,7 @@ fn staged_sidecar_supersedes_worktree_sidecar() {
 #[test]
 fn staged_metadata_change_expands_to_full_set() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.rs", "// SPDX-License-Identifier: MIT\n")
         // Apache text up front: the staged override is about to reference it.
         .texts(&["MIT", "Apache-2.0"])
@@ -673,7 +673,7 @@ fn staged_metadata_change_expands_to_full_set() {
 fn staged_license_text_deletion_expands_selection() {
     use licet::spdx::bundled_text;
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.rs", "// SPDX-License-Identifier: MIT\n")
         .write("LICENSES/MIT.txt", bundled_text("MIT").unwrap())
         .commit("base");
@@ -723,7 +723,7 @@ fn staged_custom_config_must_be_in_index() {
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
     // Once staged, the check reads the staged config (Apache default makes the
-    // MIT file drift — proving the index bytes were used, not license.toml).
+    // MIT file drift — proving the index bytes were used, not licet.toml).
     f.git(&["add", "custom.toml"]);
     let out = f
         .licet()
@@ -755,7 +755,7 @@ fn staged_custom_config_must_be_in_index() {
 #[test]
 fn apply_staged_edits_worktree_leaves_index() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("f.rs", "// SPDX-License-Identifier: MIT\n")
         .commit("base");
     f.write("f.rs", "// SPDX-License-Identifier: Apache-2.0\n")
@@ -867,7 +867,7 @@ fn explain_nonexistent_path_is_usage_error() {
 #[test]
 fn default_config_resolves_from_root_in_subdirectory() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
         .write("sub/b.rs", "// SPDX-License-Identifier: MIT\nfn b(){}\n")
         .texts(&["MIT"])
@@ -896,14 +896,73 @@ fn explicit_missing_config_is_usage_error() {
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
     // An explicit relative path stays cwd-relative: from a subdir without
-    // its own license.toml this names a missing file, unlike the omitted
+    // its own licet.toml this names a missing file, unlike the omitted
     // default which resolves from the root.
     let out = f
         .licet_in("sub")
-        .args(["check", "--config", "license.toml"])
+        .args(["check", "--config", "licet.toml"])
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
+fn legacy_only_config_errors_with_rename_hint() {
+    // Default load reads `licet.toml`; a lone `license.toml` is the pre-rename
+    // filename and must point at the rename, not fail as "missing config".
+    let f = Fixture::new();
+    f.write("license.toml", "[default]\nlicense=\"MIT\"\n")
+        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
+        .commit("init");
+    let out = f.licet().arg("check").output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("license.toml") && stderr.contains("licet.toml"),
+        "rename hint names both files: {stderr}"
+    );
+}
+
+#[test]
+fn explicit_legacy_config_path_still_reads() {
+    // Escape hatch: an explicitly named path is read as-is, whatever its name.
+    let f = Fixture::new();
+    f.write("license.toml", "[default]\nlicense=\"MIT\"\n")
+        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
+        .texts(&["MIT"])
+        .commit("init");
+    let out = f
+        .licet()
+        .args(["check", "--config", "license.toml", "--files", "a.rs"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "explicit legacy path works: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn init_refuses_default_when_legacy_config_present() {
+    // `init` must not write a competing `licet.toml` next to a legacy file
+    // that would then be silently ignored.
+    let f = Fixture::new();
+    f.write("license.toml", "[default]\nlicense=\"MIT\"\n")
+        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
+        .commit("init");
+    let out = f.licet().arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("licet.toml"),
+        "init points at the rename: {stderr}"
+    );
+    assert!(
+        !f.path().join("licet.toml").exists(),
+        "no competing default written"
+    );
 }
 
 #[test]
@@ -911,7 +970,7 @@ fn broken_stdout_pipe_exits_quietly() {
     use std::io::Read;
     use std::process::Stdio;
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .texts(&["MIT"]);
     // Enough files that the JSON report exceeds the pipe buffer, so the
     // writer deterministically hits EPIPE once the reader goes away.

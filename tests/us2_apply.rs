@@ -211,7 +211,7 @@ fn program_text_tag_is_unfixable_and_untouched() {
         // The fixture's own config file carries a header so the only failure
         // is the unfixable one (exit 1, not partial).
         .write(
-            "license.toml",
+            "licet.toml",
             "# SPDX-License-Identifier: MIT\n[default]\nlicense=\"MIT\"\n",
         )
         .commit("init");
@@ -550,7 +550,7 @@ fn additive_success_with_unfixable_remainder_is_exit_1_not_partial() {
             "FOO=SPDX-License-Identifier: Apache-2.0\nfn b(){}\n",
         )
         .write(
-            "license.toml",
+            "licet.toml",
             "# SPDX-License-Identifier: MIT\n[default]\nlicense=\"MIT\"\n",
         )
         .commit("init");

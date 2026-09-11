@@ -1,7 +1,11 @@
 //! Declarative configuration model + loading/validation (FR-001, FR-010).
 //!
-//! `license.toml` is the only authoring surface for licensing intent
+//! `licet.toml` is the only authoring surface for licensing intent
 //! (contracts/config-schema.md). Validation errors map to exit code 2.
+//!
+//! The default filename is `licet.toml` (not `license.toml`): names containing
+//! `license` are claimed by license-detection heuristics (GitHub licensee,
+//! REUSE tooling) that would misread a declarative config as a license text.
 
 pub mod schema;
 
@@ -15,6 +19,29 @@ use crate::error::{LicetError, Result};
 use crate::spdx;
 use schema::{RawConfig, RawIntent, RawRule, RawStyle};
 use smol_str::SmolStr;
+
+/// Default declarative-config filename at the repository root (FR-001).
+pub const CONFIG_FILENAME: &str = "licet.toml";
+/// Pre-rename filename: never defaulted to, but recognized to point users at
+/// the rename when it is the only config present.
+pub const LEGACY_CONFIG_FILENAME: &str = "license.toml";
+
+/// Error when the default config is absent but the legacy filename exists.
+/// An explicit `--config` path bypasses this (it names exactly what to read).
+pub fn legacy_config_error(root: &Path) -> LicetError {
+    LicetError::Config(format!(
+        "found legacy `{}` in {}; the config file was renamed to `{}` — \
+         rename it (or pass its path explicitly with `--config`)",
+        LEGACY_CONFIG_FILENAME,
+        root.display(),
+        CONFIG_FILENAME
+    ))
+}
+
+/// True when the legacy config exists and the default one does not.
+pub fn has_legacy_only_config(root: &Path) -> bool {
+    !root.join(CONFIG_FILENAME).exists() && root.join(LEGACY_CONFIG_FILENAME).exists()
+}
 
 /// A reference to a comment style: a built-in name or an inline definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +85,7 @@ pub struct LicensingConfiguration {
 }
 
 impl LicensingConfiguration {
-    /// Load and validate config from a path (default `./license.toml`).
+    /// Load and validate config from a path (default `./licet.toml`).
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path).map_err(|e| {
             LicetError::Config(format!("cannot read config `{}`: {e}", path.display()))
@@ -68,8 +95,8 @@ impl LicensingConfiguration {
 
     /// Parse and validate config from a TOML string.
     pub fn from_toml(text: &str) -> Result<Self> {
-        let raw: RawConfig = toml::from_str(text)
-            .map_err(|e| LicetError::Config(format!("invalid license.toml: {e}")))?;
+        let raw: RawConfig =
+            toml::from_str(text).map_err(|e| LicetError::Config(format!("invalid config: {e}")))?;
         Self::from_raw(raw)
     }
 

@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 
+use crate::config::CONFIG_FILENAME;
 use crate::error::{ExitCode, LicetError, Result};
 use crate::spdx;
 use crate::walk::Selection;
@@ -73,7 +74,7 @@ impl From<NonAnnotatable> for crate::domain::NonAnnotatableStrategy {
 /// Flags shared by `check` and `apply` (selection, config, format, cache).
 #[derive(Debug, Args)]
 pub struct CommonArgs {
-    /// Path to the declarative config (default: `<root>/license.toml` from
+    /// Path to the declarative config (default: `<root>/licet.toml` from
     /// the discovered root, so subdirectories work; an explicit relative
     /// path resolves from the invocation cwd).
     #[arg(long, global = true)]
@@ -117,13 +118,13 @@ pub struct CommonArgs {
 impl CommonArgs {
     /// Resolve the config argument against the discovered root: an explicit
     /// path stays invocation-cwd-relative (absolute passes through); an
-    /// omitted config defaults to `<root>/license.toml` so every command
+    /// omitted config defaults to `<root>/licet.toml` so every command
     /// works from a subdirectory (FR-001).
     pub fn config_arg(&self, cwd: &Path, root: &Path) -> PathBuf {
         match &self.config {
             Some(p) if p.is_absolute() => p.clone(),
             Some(p) => cwd.join(p),
-            None => root.join("license.toml"),
+            None => root.join(CONFIG_FILENAME),
         }
     }
 
@@ -212,7 +213,7 @@ pub struct ApplyArgs {
 pub struct InitArgs {
     /// Read as the destination when `--output` is absent (init writes a
     /// config, so `--config` names where it goes, not where policy comes
-    /// from). Defaults to `<root>/license.toml`.
+    /// from). Defaults to `<root>/licet.toml`.
     #[arg(long)]
     pub config: Option<PathBuf>,
     /// Compatibility alias: init always inspects existing REUSE state
@@ -259,7 +260,7 @@ pub struct AddLicenseArgs {
     #[arg(long)]
     pub allow_network: bool,
     /// Path to the declarative config (only read by --all to discover referenced ids).
-    /// Defaults to `<root>/license.toml`; an explicit relative path resolves
+    /// Defaults to `<root>/licet.toml`; an explicit relative path resolves
     /// from the invocation cwd.
     #[arg(long)]
     pub config: Option<PathBuf>,

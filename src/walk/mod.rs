@@ -17,6 +17,7 @@ use std::path::{Component, Path, PathBuf};
 use ignore::WalkBuilder;
 use ignore::overrides::OverrideBuilder;
 
+use crate::config::{CONFIG_FILENAME, has_legacy_only_config, legacy_config_error};
 use crate::error::{LicetError, Result};
 
 pub use git::{GitRepo, Snapshot};
@@ -264,7 +265,7 @@ pub fn prepare(
 /// root; `None` when it points outside (worktree reads only — an index snapshot
 /// cannot contain it).
 fn resolve_config_rel(cwd: &Path, root: &Path, config_arg: &Path) -> Option<PathBuf> {
-    // Omitted configs arrive as absolute `<root>/license.toml` (see
+    // Omitted configs arrive as absolute `<root>/licet.toml` (see
     // `CommonArgs::config_arg`); every explicit relative path stays
     // invocation-cwd-relative.
     let abs = if config_arg.is_absolute() {
@@ -295,7 +296,7 @@ fn read_config_text(
             // lenient read (missing/unparseable content falls back later).
             let path = match config_rel {
                 Some(rel) => root.join(rel),
-                None => PathBuf::from("license.toml"),
+                None => PathBuf::from(CONFIG_FILENAME),
             };
             Ok(std::fs::read_to_string(path).unwrap_or_default())
         }
@@ -324,10 +325,16 @@ fn read_snapshot_config(
             ))
         }),
         None if allow_missing_config => Ok(String::new()),
-        None => Err(LicetError::Config(format!(
-            "cannot read config `{}`: not present in the evaluated snapshot",
-            root.join(rel).display()
-        ))),
+        None => Err(
+            if rel == Path::new(CONFIG_FILENAME) && has_legacy_only_config(root) {
+                legacy_config_error(root)
+            } else {
+                LicetError::Config(format!(
+                    "cannot read config `{}`: not present in the evaluated snapshot",
+                    root.join(rel).display()
+                ))
+            },
+        ),
     }
 }
 

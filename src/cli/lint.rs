@@ -4,14 +4,14 @@
 //! independently of whether any declaration rule exists: each covered file
 //! needs a license expression and a copyright notice, and every referenced
 //! license text must exist under `LICENSES/`. It never parses auto-discovered
-//! policy configuration — a `license.toml` in the tree is simply another
+//! policy configuration — a `licet.toml` in the tree is simply another
 //! covered file whose own licensing metadata is checked.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::{Format, LintArgs};
-use crate::config::LicensingConfiguration;
+use crate::config::{CONFIG_FILENAME, LicensingConfiguration};
 use crate::domain::DriftClass;
 use crate::engine::Engine;
 use crate::error::{ExitCode, LicetError, Result};
@@ -52,7 +52,7 @@ pub fn run(args: LintArgs) -> Result<ExitCode> {
     // is deliberately never parsed: it is just another covered file.
     let prep = prepare(
         &cwd,
-        Path::new("license.toml"),
+        Path::new(CONFIG_FILENAME),
         &Selection::FullTree,
         Purpose::Lint,
         true,

@@ -5,7 +5,7 @@
 //! the operation is a copy from the bundle, never a network fetch — unless the caller
 //! passes `--allow-network`, which permits downloading valid-but-unbundled standard
 //! texts with the system `curl` binary into owned temporary storage. It writes **only**
-//! under `LICENSES/` — it never modifies a source file or `license.toml`, and therefore
+//! under `LICENSES/` — it never modifies a source file or `licet.toml`, and therefore
 //! does not require a clean working tree.
 //!
 //! Every requested identifier is validated before any directory is created or any
@@ -16,7 +16,7 @@
 use std::collections::BTreeSet;
 
 use super::{AddLicenseArgs, Format};
-use crate::config::LicensingConfiguration;
+use crate::config::{CONFIG_FILENAME, LicensingConfiguration};
 use crate::engine::Engine;
 use crate::error::{ExitCode, LicetError, Result};
 use crate::reuse::inventory::{self, LicenseTextInventory, ValidatedId, validate_materialize_id};
@@ -49,7 +49,7 @@ pub fn run(args: AddLicenseArgs) -> Result<ExitCode> {
         let config_arg = match &args.config {
             Some(p) if p.is_absolute() => p.clone(),
             Some(p) => cwd.join(p),
-            None => root.join("license.toml"),
+            None => root.join(CONFIG_FILENAME),
         };
         let prep = prepare(
             &cwd,

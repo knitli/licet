@@ -49,7 +49,7 @@ fn report_schema_is_valid_v2() {
 #[test]
 fn every_command_json_stdout_is_one_document() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
         .write("b.py", "x = 1\n")
         .texts(&["MIT"])

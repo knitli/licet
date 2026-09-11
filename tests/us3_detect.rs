@@ -25,7 +25,7 @@ fn compound_parenthesized_both_orders_agree() {
         "// SPDX-License-Identifier: Apache-2.0 OR (MIT)\n",
     ] {
         let f = Fixture::new();
-        f.config("[default]\nlicense=\"Apache-2.0 OR MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+        f.config("[default]\nlicense=\"Apache-2.0 OR MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
             .write("a.rs", header)
             .texts(&["MIT", "Apache-2.0"])
             .commit("init");
@@ -58,7 +58,7 @@ fn tab_separated_operators_pass_gate() {
     // strict — lowercase ids are diagnosed as invalid — while comparison
     // tolerates id case; see the spdx unit tests.)
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"Apache-2.0 OR MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"Apache-2.0 OR MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write(
             "a.rs",
             "// SPDX-FileCopyrightText: 2026 Acme\n// SPDX-License-Identifier: MIT\tor\tApache-2.0\n",
@@ -89,7 +89,7 @@ fn compound_detection_keeps_full_expression() {
 fn additive_apply_flags_contradiction() {
     // `apply --additive` that leaves two contradictory licenses warns explicitly.
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("a.rs", "// SPDX-License-Identifier: Apache-2.0\n")
         .commit("init");
     let out = f
@@ -149,7 +149,7 @@ fn invalid_license_value_diagnosed_with_line_and_copyrights_kept() {
 #[test]
 fn invalid_value_warning_reaches_gate_output() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write(
             "a.rs",
             "// SPDX-FileCopyrightText: 2026 Acme\n// SPDX-License-Identifier: Bogus-1.0\n",
@@ -179,7 +179,7 @@ fn invalid_value_warning_reaches_gate_output() {
 fn orphan_sidecar_content_has_no_effect() {
     // A valid orphan sidecar is diagnosed AND its text leaks into no file state.
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
         .write("ok.rs", "// SPDX-License-Identifier: MIT\n")
         .write("ghost.rs.license", "SPDX-License-Identifier: Apache-2.0\n")
         .commit("init");

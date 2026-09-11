@@ -4,7 +4,7 @@
 
 A single-binary CLI that manages SPDX/REUSE-compatible license and copyright metadata
 for an entire repository from **one declarative configuration**. You declare intent once
-in `license.toml`; `licet` projects that intent onto the working tree, reports drift, and
+in `licet.toml`; `licet` projects that intent onto the working tree, reports drift, and
 reconciles files to match — destructive on the license identifier by default, additive
 opt-in, copyright always preserved.
 
@@ -22,7 +22,7 @@ Requirements: Rust 1.89+. A git repository (default coverage = tracked files).
 
 ## Configure: declare intent once
 
-`license.toml` at the repo root is the **only** authoring surface for licensing intent.
+`licet.toml` at the repo root is the **only** authoring surface for licensing intent.
 Rules are ordered; specificity is `file` > `glob` > `ext`, with declaration order breaking
 ties. `REUSE.toml`/`.reuse/dep5` are read for interop/detection only.
 
@@ -56,7 +56,7 @@ for the full schema.
 |---------|---------|
 | `licet check` | Non-writing gate: classify drift, exit pass/fail. |
 | `licet apply` | Reconcile files to declared intent (destructive by default). |
-| `licet init`  | Derive a `license.toml` from current repository state. |
+| `licet init`  | Derive a `licet.toml` from current repository state. |
 | `licet lint`  | Report REUSE-compatibility posture & license-text completeness. |
 | `licet add-license` (alias `add`) | Materialize license texts into `LICENSES/` from the offline bundle. |
 
@@ -91,7 +91,7 @@ never invented — the maintainer supplies them.
 ### `init` / `lint`
 
 ```bash
-licet init --from-reuse     # bootstrap license.toml from existing headers + REUSE.toml
+licet init --from-reuse     # bootstrap licet.toml from existing headers + REUSE.toml
 licet lint                  # LICENSES/ completeness, missing texts, SPDX list version
 licet --version             # tool version + embedded SPDX license-list version
 ```
@@ -107,7 +107,7 @@ licet add-license --all            # every referenced-but-missing text
 ```
 
 Unlike `apply`, it writes **only** under `LICENSES/` — it never edits source files or
-`license.toml`, so it does not require a clean working tree. `LicenseRef-*` ids are
+`licet.toml`, so it does not require a clean working tree. `LicenseRef-*` ids are
 reported missing (exit `1`) and never scaffolded: custom texts come from the maintainer.
 A successful run writes exactly the requested text files, one per id. Exit `0` on
 success, `1` if a requested text can't be supplied offline, `2` on flag misuse
@@ -126,7 +126,7 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 ## Naming
 
 - **Binary**: `licet` (one self-contained executable; see [Install](#install)).
-- **Config**: `license.toml` at the repo root — the sole authoring surface, overridable
+- **Config**: `licet.toml` at the repo root — the sole authoring surface, overridable
   with `--config <path>`. `REUSE.toml` / `.reuse/dep5` are read for interop only.
 - **No cache**: scans are stateless and never create files; `--cache` / `--no-cache`
   remain only as deprecated no-ops.

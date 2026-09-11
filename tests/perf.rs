@@ -11,7 +11,7 @@ use std::time::Instant;
 #[test]
 fn scans_a_few_thousand_files_quickly() {
     let f = Fixture::new();
-    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n");
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n");
     let n = 3000;
     for i in 0..n {
         let dir = i / 100;
@@ -44,7 +44,7 @@ fn scans_a_few_thousand_files_quickly() {
 fn long_licenseref_scales_without_quadratic_blowup() {
     fn check_seconds_for_id_len(len: usize) -> f64 {
         let f = Fixture::new();
-        f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
+        f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n")
             .write(
                 "big.rs",
                 &format!(

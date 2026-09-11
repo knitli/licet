@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `licet` is a single-binary Rust CLI that manages SPDX/REUSE-compatible license/copyright
-headers across a repository from one declarative config (`license.toml`). You declare
+headers across a repository from one declarative config (`licet.toml`). You declare
 intent once; `licet` projects it onto the working tree, classifies drift, and reconciles
 files to match. It is **offline and hermetic by default** — SPDX license texts are
 embedded in the binary at build time — and output stays compatible with the upstream
@@ -74,7 +74,7 @@ content (destructive on the license id by default; `--additive` keeps both), cop
 `git checkout` is always a clean undo.
 
 Supporting modules:
-- `src/config/` — `license.toml` loading/validation (`schema.rs` is the raw serde model;
+- `src/config/` — `licet.toml` loading/validation (`schema.rs` is the raw serde model;
   `mod.rs` validates into the domain types). This is the **only** authoring surface for
   intent; `REUSE.toml`/dep5 are read for interop/detection only.
 - `src/comment/` — built-in comment-style registry (seeded to the REUSE-known set),
@@ -106,7 +106,7 @@ and contracts live under `specs/001-declarative-license-headers/`:
 - `spec.md`, `data-model.md` — requirements and domain model (code comments cite `FR-0xx`
   / `data-model §x` tags that map back here).
 - `contracts/cli.md` — CLI surface and exit-code contract.
-- `contracts/config-schema.md` — full `license.toml` schema.
+- `contracts/config-schema.md` — full `licet.toml` schema.
 - `contracts/report.schema.json` — JSON output schema.
 
 When changing behavior, update the spec/contracts alongside the code, and keep the

@@ -18,11 +18,11 @@ use licet::engine::Engine;
 use licet::walk::Selection;
 use licet::walk::{Discovered, Purpose, prepare};
 
-const BASE_CONFIG: &str = "[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n";
+const BASE_CONFIG: &str = "[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"licet.toml\"]\n";
 
 /// Populate `root` with `n` compliant tiny Rust files across subdirectories.
 fn build_tiny_tree(root: &Path, n: usize) {
-    std::fs::write(root.join("license.toml"), BASE_CONFIG).unwrap();
+    std::fs::write(root.join("licet.toml"), BASE_CONFIG).unwrap();
     for i in 0..n {
         let dir = root.join(format!("src/d{}", i / 100));
         std::fs::create_dir_all(&dir).unwrap();
@@ -43,7 +43,7 @@ fn build_mixed_tree(root: &Path, n: usize) -> String {
             "[[rule]]\nglob=\"src/d{i}/**\"\nlicense=\"MIT\"\n"
         ));
     }
-    std::fs::write(root.join("license.toml"), &config).unwrap();
+    std::fs::write(root.join("licet.toml"), &config).unwrap();
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(
         root.join("sub/REUSE.toml"),
@@ -99,7 +99,7 @@ fn prepared_paths(
 ) {
     let prep = prepare(
         root,
-        &root.join("license.toml"),
+        &root.join("licet.toml"),
         &Selection::FullTree,
         Purpose::Policy,
         false,
@@ -111,7 +111,7 @@ fn prepared_paths(
 
 /// Assert the evaluated set is exactly what the timed loop will classify:
 /// same file count, every file compliant or excluded. Runs once, outside
-/// timing. (Excluded files such as `license.toml` stay in the path set with
+/// timing. (Excluded files such as `licet.toml` stay in the path set with
 /// an `Excluded` verdict — they are part of the equivalent set.)
 fn assert_equivalent(engine: &Engine, paths: &[Discovered]) {
     let result = engine.scan(paths).unwrap();
