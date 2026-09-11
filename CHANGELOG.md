@@ -1,6 +1,23 @@
 # Changelog
 
 All notable changes to `licet` are documented here.
+## [0.3.0] - 2026-09-11
+
+### Bug Fixes
+- REUSE dev tool- Resolve git/curl without consulting the working directory- Reconcile manifest/lock with rebased main, restore serde_json dep- Repair Windows-only build breaks inherited from main- Split platform-divergent resolver test to satisfy Windows -D warnings- Force globset backslash escapes so oob matching is platform-independent- Tolerate Windows path-spelling aliases in explicit file selection
+
+### Documentation
+- Attribute vendored REUSE Specification v3.3 (CC-BY-SA-4.0)
+
+### Features
+- Implement licet improvement plan (tasks 1-12, F01-F19)- Rename default config license.toml to licet.toml
+
+### Refactor
+- Address review complexity, split oob module, docs nits- Split genuinely multi-concern functions flagged by complexity gate
+
+### Diag
+- Surface licet stderr in LicenseRef scaling test assertion
+
 ## [0.2.2] - 2026-06-28
 
 ### Bug Fixes
