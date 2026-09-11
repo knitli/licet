@@ -6,7 +6,7 @@ pub mod check;
 pub mod init;
 pub mod lint;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -73,9 +73,11 @@ impl From<NonAnnotatable> for crate::domain::NonAnnotatableStrategy {
 /// Flags shared by `check` and `apply` (selection, config, format, cache).
 #[derive(Debug, Args)]
 pub struct CommonArgs {
-    /// Path to the declarative config.
-    #[arg(long, default_value = "license.toml", global = true)]
-    pub config: PathBuf,
+    /// Path to the declarative config (default: `<root>/license.toml` from
+    /// the discovered root, so subdirectories work; an explicit relative
+    /// path resolves from the invocation cwd).
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
 
     /// Output rendering.
     #[arg(long, value_enum, default_value_t = Format::Human, global = true)]
@@ -101,16 +103,30 @@ pub struct CommonArgs {
     #[arg(long, value_name = "REV", num_args = 0..=1, default_missing_value = "HEAD", global = true)]
     pub changed: Option<String>,
 
-    /// Disable the scan cache.
+    /// Deprecated no-op (retained for compatibility): scans are stateless
+    /// and never cache. May print a stderr notice.
     #[arg(long, global = true)]
     pub no_cache: bool,
 
-    /// Relocate the scan cache.
+    /// Deprecated no-op (retained for compatibility): scans are stateless
+    /// and never cache. May print a stderr notice.
     #[arg(long, value_name = "PATH", global = true)]
     pub cache: Option<PathBuf>,
 }
 
 impl CommonArgs {
+    /// Resolve the config argument against the discovered root: an explicit
+    /// path stays invocation-cwd-relative (absolute passes through); an
+    /// omitted config defaults to `<root>/license.toml` so every command
+    /// works from a subdirectory (FR-001).
+    pub fn config_arg(&self, cwd: &Path, root: &Path) -> PathBuf {
+        match &self.config {
+            Some(p) if p.is_absolute() => p.clone(),
+            Some(p) => cwd.join(p),
+            None => root.join("license.toml"),
+        }
+    }
+
     /// Resolve the file selection, enforcing mutual exclusivity (FR-027).
     pub fn selection(&self) -> Result<Selection> {
         let mut chosen = 0;
@@ -194,22 +210,35 @@ pub struct ApplyArgs {
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    #[arg(long, default_value = "license.toml")]
-    pub config: PathBuf,
-    /// Derive from existing REUSE state (headers + REUSE.toml/.reuse/dep5).
+    /// Read as the destination when `--output` is absent (init writes a
+    /// config, so `--config` names where it goes, not where policy comes
+    /// from). Defaults to `<root>/license.toml`.
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+    /// Compatibility alias: init always inspects existing REUSE state
+    /// (headers plus `REUSE.toml`/`.reuse/dep5`), so this changes nothing.
     #[arg(long)]
     pub from_reuse: bool,
-    /// Output path for the generated config.
+    /// Output path for the generated config (overrides `--config`).
+    /// Relative paths resolve from the invocation cwd.
     #[arg(long)]
     pub output: Option<PathBuf>,
+    /// Replace the destination when it already exists. Without it, init
+    /// creates new and refuses to overwrite (existing files and symlinks
+    /// are never followed or truncated).
+    #[arg(long)]
+    pub force: bool,
     #[arg(long, value_enum, default_value_t = Format::Human)]
     pub format: Format,
 }
 
 #[derive(Debug, Args)]
 pub struct LintArgs {
-    #[arg(long, default_value = "license.toml")]
-    pub config: PathBuf,
+    /// Explicit policy config path (compatibility only): it must exist and
+    /// parse, is accepted with a deprecation notice, and never changes REUSE
+    /// evaluation. Omitted by default — lint needs no configuration.
+    #[arg(long)]
+    pub config: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = Format::Human)]
     pub format: Format,
     /// Permit fetching license ids absent from the offline bundle.
@@ -230,8 +259,10 @@ pub struct AddLicenseArgs {
     #[arg(long)]
     pub allow_network: bool,
     /// Path to the declarative config (only read by --all to discover referenced ids).
-    #[arg(long, default_value = "license.toml")]
-    pub config: PathBuf,
+    /// Defaults to `<root>/license.toml`; an explicit relative path resolves
+    /// from the invocation cwd.
+    #[arg(long)]
+    pub config: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = Format::Human)]
     pub format: Format,
 }
@@ -244,10 +275,31 @@ pub struct CompletionsArgs {
 }
 
 /// Print a completion script for `shell` to stdout.
-pub fn print_completions(shell: Shell) {
+pub fn print_completions(shell: Shell) -> Result<()> {
     let mut cmd = Cli::command();
     let name = cmd.get_name().to_string();
-    clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+    let mut buf = Vec::new();
+    clap_complete::generate(shell, &mut cmd, name, &mut buf);
+    emit_stdout(&String::from_utf8_lossy(&buf))
+}
+
+/// Write a complete output document to stdout.
+///
+/// A closed pipe (the reader went away first, e.g. `| head`) terminates
+/// quietly with exit 0 instead of panicking on `EPIPE`; any other output
+/// error is returned normally for the caller to report.
+pub fn emit_stdout(text: &str) -> Result<()> {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let mut quiet_pipe = |e: std::io::Error| {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            std::process::exit(0);
+        }
+        e
+    };
+    out.write_all(text.as_bytes()).map_err(&mut quiet_pipe)?;
+    out.flush().map_err(quiet_pipe)?;
+    Ok(())
 }
 
 /// Render the `--version` line including the embedded SPDX list version (FR-028).
@@ -262,7 +314,7 @@ pub fn version_string() -> String {
 /// Dispatch a parsed CLI to its command, returning the process exit code.
 pub fn dispatch(cli: Cli) -> Result<ExitCode> {
     if cli.version {
-        println!("{}", version_string());
+        emit_stdout(&format!("{}\n", version_string()))?;
         return Ok(ExitCode::Success);
     }
     match cli.command {
@@ -272,7 +324,7 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
         Some(Command::Lint(args)) => lint::run(args),
         Some(Command::AddLicense(args)) => add_license::run(args),
         Some(Command::Completions(args)) => {
-            print_completions(args.shell);
+            print_completions(args.shell)?;
             Ok(ExitCode::Success)
         }
         None => Err(LicetError::Config(

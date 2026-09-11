@@ -54,7 +54,9 @@ A matcher paired with the intent it confers (FR-001, FR-002).
 **Selector** (one of):
 - `Extension(string)` — e.g. `rs`, `pkl`
 - `Glob(pattern)` — e.g. `examples/**/*.rs`, `vendor/**`
-- `ExactPath(path)` / `Filename(name)` — e.g. `hk.pkl`, `README.md`
+- `ExactPath(path)` / `Filename(name)` — e.g. `hk.pkl`, `README.md`. A `file`
+  value with a leading `./` normalizes to `ExactPath` without the prefix, so
+  `./Makefile` pins the root file while bare `Makefile` matches any directory.
 
 **State/derivation rules**:
 - Resolution picks the highest `(specificity, then earliest source_order)` match.
@@ -139,26 +141,39 @@ What is really present for a file, gathered by detection (FR-003a).
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `headers` | list of `HeaderBlock` | File-level SPDX header occurrences. Normally parsed from the file head; when a `<file>.license` **sidecar** exists, its headers are used instead (the REUSE spec treats sidecar content as "inside the file"), so a binary asset can be covered without byte access. Tags inside `REUSE-IgnoreStart`/`REUSE-IgnoreEnd` and inside SPDX snippets are excluded from this list (FR-030). |
+| `headers` | list of `HeaderBlock` | File-level SPDX header occurrences. Parsed from the complete file content (no head cutoff); when a `<file>.license` **sidecar** exists, its headers are used instead (the REUSE spec treats sidecar content as "inside the file"), so a binary asset can be covered without byte access. Tags inside `REUSE-IgnoreStart`/`REUSE-IgnoreEnd` and inside SPDX snippets are excluded from this list (FR-030). Rejected `SPDX-License-Identifier` values are kept with line + reason for diagnosis, never dropped silently. |
 | `snippet_licenses` | list of SPDX expression | Licenses declared inside `SPDX-SnippetBegin`..`SPDX-SnippetEnd` regions. These describe snippets, not the file, so they never affect drift — but they are added to the referenced license-text set for `LICENSES/` completeness (FR-030). |
-| `out_of_band` | optional `OutOfBandEntry` | License/copyright + `precedence` from `REUSE.toml` or `.reuse/dep5` covering this path. Read for interop/detection only — never an authoring surface. |
-| `detected_license` | optional SPDX expression | The primary resolved license. |
+| `out_of_band` | optional `OutOfBandEntry` | Hierarchy-resolved `REUSE.toml`/`.reuse/dep5` coverage for this path (unconditional values + per-field `closest` fallbacks + contributing-table provenance). Read for interop/detection only — never an authoring surface. |
+| `detected_license` | optional SPDX expression | The primary resolved license (first file-level, else first unconditional OOB, else first fallback). |
 | `detected_source` | optional `ActualSource` | One of `Header`, `Sidecar` (`license_file`), `ReuseToml`, `Dep5`. |
-| `detected_copyrights` | list of string | All `SPDX-FileCopyrightText` lines found (always aggregated across sources; copyright is never erased). |
+| `detected_copyrights` | list of string | Effective copyrights: file-level plus unconditional OOB notices, plus the `closest` fallback only when the file carries none. Raw suppressed notices stay in `headers` for preservation. |
 | `encoding_ok` | bool | False only when the asset is not valid UTF-8 **and** has no sidecar/out-of-band coverage; drives `Unreadable` (FR-025). A non-UTF8 binary covered by a sidecar or annotation is readable. |
 
-**Precedence (FR-003a)** — how an `out_of_band` annotation combines with file-level info
-(header or sidecar) follows its REUSE 3.3 `precedence`:
+**Precedence (FR-003a)** — `REUSE.toml` documents are discovered at every directory
+depth and consulted root-first; each document contributes exclusively its last matching
+table, and consultation stops after the rootmost `override` table (verified against the
+reference REUSE 6.2.0 tool). License and copyright resolve independently:
 
-| `Precedence` | Effective candidates | Primary |
-|--------------|----------------------|---------|
-| `Closest` (default) | file-level if present, else annotation | file-level wins |
-| `Aggregate` | file-level ∪ annotation | file-level if present |
-| `Override` | annotation if it has a license, else file-level | annotation wins; emits `source_override` on disagreement |
+- The rootmost `override` table (the *barrier*) suppresses file/sidecar info and every
+  deeper table — even for a field the table omits (an omitted field stays missing; it
+  never reopens suppressed sources). Shallower `aggregate` tables are still retained,
+  and shallower `closest` tables still serve as the per-field fallback. Emits
+  `source_override` on disagreement with the suppressed header.
+- Every consulted `aggregate` table always contributes its licenses and copyrights.
+- `closest` tables are a per-field fallback: the nearest-outward table supplying a
+  license (resp. copyright) fills that field only when file-level info — or, under a
+  barrier, nothing — provides none. A file carrying exactly one field still takes the
+  other's fallback.
+- `.reuse/dep5` paragraphs are `aggregate` contributors; the last matching paragraph
+  governs a path. `REUSE.toml` and `.reuse/dep5` are mutually exclusive — their
+  coexistence, like any malformed document (bad TOML, `version` other than 1, missing
+  `path`, invalid `precedence`, invalid license expression), fails the scan before any
+  write, naming the document.
 
 `candidate_licenses()` is the single precedence-aware resolver both `classify` and
-`reconcile` consult, so the rule is applied in exactly one place. `.reuse/dep5` carries no
-`precedence` and is treated as `Override`.
+`reconcile` consult, so the rule is applied in exactly one place. `REUSE.toml` path
+patterns use the REUSE grammar (`*` never crosses `/`, `**` does, only `\`-escapes are
+special, `?[]{} ` are literal); dep5 `Files:` patterns are shell-style (`*` crosses `/`).
 
 **HeaderBlock**
 
@@ -186,7 +201,17 @@ The per-file join of declared vs actual, with classification (FR-004).
 | `conflict` | optional `RuleConflict` | Set when equal-specificity rules matched (FR-022). |
 
 **DriftClass** (FR-004) — exhaustive, mutually exclusive:
-`Compliant` | `WrongLicense{declared, actual}` | `MissingHeader` | `Uncovered` | `Excluded` | `Unreadable`
+`Compliant` | `WrongLicense{declared, actual}` | `CopyrightMismatch{declared, actual}` | `MissingHeader` | `Uncovered` | `Excluded` | `Unreadable`
+
+License equality joins **all** effective expressions as one `AND` expression and
+compares once: a matching candidate never hides an additional license. Copyright is
+compared separately against the policy (`preserve` imposes nothing; `add` needs
+existing notices plus the requested normalized notice; `replace` needs exactly it):
+a license match with an unsatisfied copyright policy is `CopyrightMismatch`, while a
+license mismatch keeps the copyright mismatch as a `copyright_mismatch` diagnostic
+next to `WrongLicense`. An unresolved rule conflict has no single declared intent;
+its `declared` names the tied expressions descriptively (never a fabricated token)
+and the conflict stays structured in `conflict` plus a `rule_conflict` warning.
 
 `Unreadable` (FR-025) covers files that cannot be safely parsed or written (e.g. non-UTF-8); the tool never byte-edits them.
 
@@ -210,9 +235,21 @@ Tracks referenced identifiers vs present texts in `LICENSES/` (FR-014, FR-017, F
 | Field | Type | Notes |
 |-------|------|-------|
 | `referenced` | set of SPDX id | Every identifier used anywhere in the repo/config. |
-| `present` | set of SPDX id | Texts found under `LICENSES/`. |
+| `present` | set of SPDX id | Recognized texts under root `LICENSES/` (`.txt`/`.md` suffixed, or a bare known id — the bare form satisfies presence but strict lint reports its missing extension). Symlinks never count. |
 | `missing` | derived set | `referenced − present` → reported; standard ids materializable from the embedded bundle offline; `LicenseRef-*` scaffolded as placeholders. The `add-license` command (FR-029) materializes this set (or an explicit subset) into `LICENSES/`. |
 | `bundled` | set of SPDX id | Identifiers whose text is embedded in the binary. |
+| `unused` | list of SPDX id | Present but never referenced — a project-wide lint finding only, never a selected-file policy failure. |
+| `unrecognized` | list of path+reason | `LICENSES/` entries naming no recognizable license (bad suffix, unknown id, legacy `+` spelling) — lint finding. |
+| `missing_extension` | list of SPDX id | Recognized ids in extensionless files — lint finding; still satisfy presence for policy and materialization. |
+| `unreadable` | list of path+reason | Recognized texts that are not readable UTF-8 — validation is incomplete for them, never a pass and never a proven violation. |
+
+Duplicate ids under several filenames make the inventory ambiguous and fail before
+use (as in the reference tool). The scan keeps two selected-scope reference sets:
+`actual_referenced_ids` (effective file + snippet expressions, excluding suppressed
+values and unused config rules) feeds REUSE inventory; `desired_referenced_ids`
+(winning intents of evaluated files only) joins it for the policy `check` text
+scope. `apply` materializes its projected post-apply state only — never stale
+replaced licenses or unmatched rules — and never deletes texts.
 
 ---
 
@@ -224,8 +261,19 @@ The computed result of a `check` (read-only) or `apply` (writing) run.
 |-------|------|-------|
 | `files` | list of `FileLicensingState` | Per-file classification. |
 | `changes` | list of `FileChange` | For `apply`: before/after per file; for `check`: would-be changes. |
-| `warnings` | list of `Warning` | Contradictions (FR-020), rule conflicts (FR-022), missing texts, `source_override` (FR-003a), encoding skips (FR-025). |
-| `summary` | `{ pass, partial, counts }` | `counts` holds per-`DriftClass` totals **plus** `conflicts` and `contradictions`; `partial` (FR-021) and `pass` (FR-012a, SC-009) live here too. Drives the exit code. This is the canonical shape; `report.schema.json` matches it. |
+| `diagnostics` | list of `Diagnostic` | Contradictions (FR-020), rule conflicts (FR-022), missing texts, `source_override` (FR-003a), encoding skips (FR-025). Sorted by path, then code. |
+| `writes` | list of write records | Independent of file states: one record per planned/applied/failed/blocked write with destination, kind, outcome, covered files, and exact text for text writes (FR-021). |
+| `summary` | `{ pass, partial, complete, before_pass, projected_pass, counts }` | `counts` holds per-`DriftClass` totals **plus** `conflicts` and `contradictions`; `partial` (FR-021) and `pass` (FR-012a, SC-009) live here too. `complete` is false when final verification did not run; `before_pass` is the pre-apply gate; dry-run `pass` means `projected_pass`. Drives the exit code. This is the canonical shape; `report.schema.json` matches it. |
+
+**PlannedWrite / write record**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `path` | path | Destination written (the document itself for metadata patches). |
+| `kind` | enum `{ source, sidecar, reuse_toml, license_text, config }` | What the write mutates (FR-021). |
+| `status` | enum `{ planned, applied, failed, blocked }` | Dry-run previews as `planned`; converged runs emit no record (`unchanged` is absence). |
+| `affected_files` | list of paths | Selected files the write covers (the assets behind a metadata patch). |
+| `before_text` / `after_text` | optional text | Exact bytes as text for text being written; absent for blocked writes with no known result. |
 
 **FileChange**
 
@@ -249,4 +297,4 @@ The computed result of a `check` (read-only) or `apply` (writing) run.
 | FileLicensingState, DriftClass | FR-003, FR-004, FR-012a, FR-025 |
 | LicenseTextInventory | FR-014, FR-015, FR-017, FR-028, FR-029 |
 | ReconciliationPlan/Report, FileChange | FR-006, FR-007, FR-012, FR-013, FR-020, FR-021, FR-024, SC-009, SC-010 |
-| Scan cache (fingerprint key) | FR-023, SC-011 |
+| Stateless scan (no cache) | FR-023, SC-011 |

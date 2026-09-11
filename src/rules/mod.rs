@@ -10,7 +10,6 @@ use globset::{Glob, GlobMatcher};
 
 use crate::config::{LicensingConfiguration, Rule};
 use crate::domain::{LicenseIntent, RuleConflict, Selector};
-use crate::spdx;
 
 /// Precompiled rule set for fast repeated matching.
 pub struct RuleSet<'a> {
@@ -76,19 +75,18 @@ impl<'a> RuleSet<'a> {
         // Deterministic order by declaration position.
         matches.sort_by_key(|r| r.source_order);
 
-        // Among equal-specificity matches, differing licenses are a conflict.
+        // Among equal-specificity matches, differing full intent (license or
+        // copyright policy) is a conflict; identical intent resolves to the
+        // earliest declaration order.
         let first = matches[0];
-        let differing = matches.iter().any(|r| {
-            !spdx::expressions_equal(
-                &r.intent.license_expression,
-                &first.intent.license_expression,
-            )
-        });
+        let differing = matches
+            .iter()
+            .any(|r| !crate::domain::intents_equal(&r.intent, &first.intent));
         if matches.len() > 1 && differing {
             let labels: Vec<String> = matches.iter().map(|r| r.label()).collect();
             return Match::Conflict(RuleConflict {
                 message: format!(
-                    "{} rules of equal specificity match with differing licenses: {}",
+                    "{} rules of equal specificity match with differing intent: {}",
                     matches.len(),
                     labels.join(", ")
                 ),
@@ -98,6 +96,29 @@ impl<'a> RuleSet<'a> {
 
         Match::Rule(first)
     }
+}
+
+/// Every rule whose selector matches `rel_path`, most specific first (ties by
+/// earliest declaration). Powers `--explain` losing-rule reporting; the
+/// winning pick itself stays in [`RuleSet::resolve`].
+pub fn matching_rules<'a>(
+    config: &'a LicensingConfiguration,
+    rel_path: &Path,
+) -> Vec<(&'a Rule, u32)> {
+    let mut out: Vec<(&'a Rule, u32)> = config
+        .rules
+        .iter()
+        .filter(|rule| {
+            let glob = match &rule.selector {
+                Selector::Glob(pat) => Glob::new(pat).ok().map(|g| g.compile_matcher()),
+                _ => None,
+            };
+            selector_matches(&rule.selector, glob.as_ref(), rel_path)
+        })
+        .map(|rule| (rule, rule.selector.specificity()))
+        .collect();
+    out.sort_by_key(|(rule, spec)| (u32::MAX - spec, rule.source_order));
+    out
 }
 
 /// Does a single selector match a repo-relative path?
@@ -177,6 +198,34 @@ mod tests {
     fn equal_specificity_same_license_resolves() {
         let c = cfg("[[rule]]\nglob=\"examples/**\"\nlicense=\"MIT\"\n\
              [[rule]]\nglob=\"**/*.rs\"\nlicense=\"MIT\"\n");
+        let rs = RuleSet::new(&c);
+        assert!(matches!(
+            rs.resolve(&PathBuf::from("examples/demo.rs")),
+            Match::Rule(_)
+        ));
+    }
+
+    #[test]
+    fn equal_specificity_same_license_different_copyright_conflicts() {
+        // Full intent (license + copyright policy) decides: identical
+        // licenses with different copyright handling still conflict.
+        let c = cfg(
+            "[[rule]]\nglob=\"examples/**\"\nlicense=\"MIT\"\ncopyright=\"preserve\"\n\
+             [[rule]]\nglob=\"**/*.rs\"\nlicense=\"MIT\"\ncopyright=\"add:2026 Acme\"\n",
+        );
+        let rs = RuleSet::new(&c);
+        assert!(matches!(
+            rs.resolve(&PathBuf::from("examples/demo.rs")),
+            Match::Conflict(_)
+        ));
+    }
+
+    #[test]
+    fn equal_specificity_identical_full_intent_resolves() {
+        let c = cfg(
+            "[[rule]]\nglob=\"examples/**\"\nlicense=\"MIT\"\ncopyright=\"add:2026 Acme\"\n\
+             [[rule]]\nglob=\"**/*.rs\"\nlicense=\"MIT\"\ncopyright=\"add:2026 Acme\"\n",
+        );
         let rs = RuleSet::new(&c);
         assert!(matches!(
             rs.resolve(&PathBuf::from("examples/demo.rs")),

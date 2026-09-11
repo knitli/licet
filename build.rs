@@ -12,6 +12,9 @@ fn main() {
     let dest = Path::new(&out_dir).join("licet_licenses.rs");
 
     println!("cargo:rerun-if-changed=assets/licenses");
+    // The SPDX list version is build metadata: a changed override must
+    // rebuild, or the binary would report a stale version string.
+    println!("cargo:rerun-if-env-changed=LICET_SPDX_LIST_VERSION");
 
     let mut entries: Vec<String> = Vec::new();
     if licenses_dir.is_dir() {

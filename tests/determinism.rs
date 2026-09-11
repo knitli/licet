@@ -30,20 +30,28 @@ fn mixed_repo() -> Fixture {
 #[test]
 fn identical_inputs_produce_byte_identical_reports() {
     let f = mixed_repo();
-    let run = || {
+    let run = |extra: &[&str]| {
         let out = f
             .licet()
-            .args(["check", "--no-cache", "--format", "json"])
+            .args(["check", "--format", "json"])
+            .args(extra)
             .output()
             .unwrap();
         (out.status.code(), String::from_utf8(out.stdout).unwrap())
     };
-    let (code1, json1) = run();
-    let (code2, json2) = run();
+    let (code1, json1) = run(&[]);
+    let (code2, json2) = run(&[]);
     assert_eq!(code1, code2, "exit code must be stable");
     assert_eq!(
         json1, json2,
         "JSON report must be byte-identical across runs"
+    );
+    // The deprecated flags are true no-ops: same bytes out, no files created.
+    let (code3, json3) = run(&["--no-cache"]);
+    assert_eq!((code1, json1), (code3, json3));
+    assert!(
+        !f.path().join(".git/licet-cache").exists(),
+        "stateless scans must not create cache files"
     );
 }
 
@@ -67,30 +75,42 @@ fn file_ordering_is_lexicographically_sorted() {
     assert_eq!(paths, sorted, "files must be emitted in sorted order");
 }
 
+/// Output equality cannot prove no subprocess ran; a call assertion can: even
+/// with `--allow-network` and a missing standard text, `lint` only diagnoses
+/// and never spawns `curl` (Unix-only: the shim needs an executable bit).
+#[cfg(unix)]
 #[test]
-fn allow_network_flag_does_not_change_offline_behavior() {
-    // A repo whose declared license is a non-bundled SPDX id: with or without
-    // --allow-network, `lint` runs offline and produces the same posture/exit code.
+fn lint_never_invokes_curl_even_with_allow_network() {
+    use std::os::unix::fs::PermissionsExt;
     let f = Fixture::new();
     f.config("[default]\nlicense=\"MIT\"\n")
-        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
+        .write("a.rs", "// SPDX-License-Identifier: Apache-1.0\nfn a(){}\n")
         .commit("init");
 
-    let offline = f
+    let shim = tempfile::tempdir().unwrap();
+    std::fs::write(
+        shim.path().join("curl"),
+        "#!/bin/sh\ntouch \"$FAKE_MARKER\"\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        shim.path().join("curl"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let marker = shim.path().join("invoked");
+    let mut paths = vec![shim.path().to_path_buf()];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    let out = f
         .licet()
-        .args(["lint", "--format", "json"])
-        .output()
-        .unwrap();
-    let allowed = f
-        .licet()
+        .env("PATH", std::env::join_paths(paths).unwrap())
+        .env("FAKE_MARKER", &marker)
         .args(["lint", "--allow-network", "--format", "json"])
         .output()
         .unwrap();
-    assert_eq!(offline.status.code(), allowed.status.code());
-    assert_eq!(
-        String::from_utf8(offline.stdout).unwrap(),
-        String::from_utf8(allowed.stdout).unwrap(),
-        "JSON lint posture must be identical regardless of --allow-network (no fetch occurs)"
-    );
+    assert_eq!(out.status.code(), Some(1), "missing text fails the gate");
+    assert!(!marker.exists(), "lint must never invoke curl");
 }
 // REUSE-IgnoreEnd

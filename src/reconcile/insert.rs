@@ -42,13 +42,33 @@ pub fn insertion_offset(content: &str) -> usize {
         offset += line_len(&bytes[offset..]);
     }
 
-    // Encoding / XML declaration on the (new) first line.
+    // A `<? ... ?>` processing instruction (XML declaration, PHP open tag)
+    // yields only through its close, so a same-line body stays after the
+    // header; other encoding declarations take the whole first line.
     let rest = &content[offset..];
     let first_line_end = line_len(rest.as_bytes());
     let first_line = &rest[..first_line_end];
-    if first_line.starts_with("<?xml")
-        || first_line.contains("coding:")
-        || first_line.contains("coding=")
+    if first_line.starts_with("<?") {
+        match first_line.find("?>") {
+            Some(i) => offset += i + "?>".len(),
+            None => offset += first_line_end,
+        }
+    } else if first_line.contains("coding:") || first_line.contains("coding=") {
+        offset += first_line_end;
+    }
+
+    // Language-specific first lines that must stay first (FR-019): the PHP
+    // open tag, the Cabal project header, and TeX/BibTeX magic comments — the
+    // same positions `leading_position` recognizes for detection.
+    let rest = &content[offset..];
+    let first_line_end = line_len(rest.as_bytes());
+    let first_line = &rest[..first_line_end];
+    if first_line.starts_with("<?")
+        || first_line.starts_with("cabal-version:")
+        || first_line.starts_with("% !TEX")
+        || first_line.starts_with("%TEX")
+        || first_line.starts_with("% !BIB")
+        || first_line.starts_with("%!BIB")
     {
         offset += first_line_end;
     }
@@ -136,6 +156,117 @@ mod tests {
                 .unwrap()
                 .contains("SPDX-License-Identifier")
         );
+    }
+
+    #[test]
+    fn inserts_after_php_tag() {
+        let out = insert_header("<?php\necho 'hi';\n", "// SPDX-License-Identifier: MIT\n");
+        assert!(out.starts_with("<?php\n"));
+        assert!(
+            out.lines()
+                .nth(1)
+                .unwrap()
+                .contains("SPDX-License-Identifier")
+        );
+    }
+
+    #[test]
+    fn inserts_after_cabal_version() {
+        let out = insert_header(
+            "cabal-version: 3.0\nname: demo\n",
+            "-- SPDX-License-Identifier: MIT\n",
+        );
+        assert!(out.starts_with("cabal-version: 3.0\n"));
+        assert!(
+            out.lines()
+                .nth(1)
+                .unwrap()
+                .contains("SPDX-License-Identifier")
+        );
+    }
+
+    #[test]
+    fn inserts_after_tex_magic() {
+        let out = insert_header(
+            "% !TEX program = xelatex\n\\documentclass{article}\n",
+            "% SPDX-License-Identifier: MIT\n",
+        );
+        assert!(out.starts_with("% !TEX program = xelatex\n"));
+        assert!(
+            out.lines()
+                .nth(1)
+                .unwrap()
+                .contains("SPDX-License-Identifier")
+        );
+    }
+
+    #[test]
+    fn inserts_after_xml_close_before_same_line_body() {
+        let out = insert_header(
+            "<?xml version=\"1.0\"?><root/>\n",
+            "<!-- SPDX-License-Identifier: MIT -->\n",
+        );
+        assert_eq!(
+            out,
+            "<?xml version=\"1.0\"?>\n<!-- SPDX-License-Identifier: MIT -->\n\n<root/>\n"
+        );
+    }
+
+    #[test]
+    fn inserts_after_shebang_and_encoding_decl() {
+        let out = insert_header(
+            "#!/usr/bin/env python\n# coding: utf-8\nprint('hi')\n",
+            "# SPDX-License-Identifier: MIT\n",
+        );
+        assert_eq!(
+            out,
+            "#!/usr/bin/env python\n# coding: utf-8\n# SPDX-License-Identifier: MIT\n\nprint('hi')\n"
+        );
+    }
+
+    #[test]
+    fn bom_then_shebang_stay_contiguous() {
+        let out = insert_header(
+            "\u{feff}#!/bin/sh\necho hi\n",
+            "# SPDX-License-Identifier: MIT\n",
+        );
+        assert_eq!(
+            out,
+            "\u{feff}#!/bin/sh\n# SPDX-License-Identifier: MIT\n\necho hi\n"
+        );
+    }
+
+    #[test]
+    fn no_trailing_newline_gets_terminated_body() {
+        let out = insert_header("code", "// SPDX-License-Identifier: MIT\n");
+        assert_eq!(out, "// SPDX-License-Identifier: MIT\n\ncode");
+    }
+
+    #[test]
+    fn unicode_body_survives_insertion() {
+        let out = insert_header(
+            "fn héllo(){} // héllo\n",
+            "// SPDX-License-Identifier: MIT\n",
+        );
+        assert_eq!(
+            out,
+            "// SPDX-License-Identifier: MIT\n\nfn héllo(){} // héllo\n"
+        );
+    }
+
+    #[test]
+    fn crlf_shebang_keeps_crlf() {
+        let out = insert_header("#!/bin/sh\r\ncode\r\n", "# SPDX-License-Identifier: MIT\n");
+        assert_eq!(
+            out,
+            "#!/bin/sh\r\n# SPDX-License-Identifier: MIT\r\n\r\ncode\r\n"
+        );
+    }
+
+    #[test]
+    fn multiline_block_header_inserts_verbatim() {
+        let out = insert_header("code\n", "/*\n * SPDX-License-Identifier: MIT\n */\n");
+        assert_eq!(out, "/*\n * SPDX-License-Identifier: MIT\n */\n\ncode\n");
     }
 }
 // REUSE-IgnoreEnd

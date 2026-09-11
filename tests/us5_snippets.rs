@@ -17,6 +17,73 @@ fn check_json(f: &Fixture, file: &str) -> serde_json::Value {
     serde_json::from_slice(&out.stdout).unwrap()
 }
 
+fn snippet_file(padding_lines: usize) -> String {
+    // A file whose snippet region sits `padding_lines` into the body (past the
+    // old 8 KiB head window when large): full-content scans still find it.
+    let mut s = String::from("// SPDX-License-Identifier: MIT\nfn f() {}\n");
+    for i in 0..padding_lines {
+        s.push_str(&format!("// filler line {i}\n"));
+    }
+    s.push_str(
+        "// SPDX-SnippetBegin\n// SPDX-License-Identifier: BSD-3-Clause\nfn vendored() {}\n// SPDX-SnippetEnd\n",
+    );
+    s
+}
+
+#[test]
+fn late_snippet_is_detected_and_inventoried() {
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n");
+    f.write("src/lib.rs", &snippet_file(2000)).commit("init");
+    let v = check_json(&f, "src/lib.rs");
+    assert_eq!(v["summary"]["counts"]["compliant"], 1);
+    let out = f
+        .licet()
+        .args(["lint", "--format", "json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let ids: Vec<&str> = v["license_texts"]["referenced"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|x| x.as_str())
+        .collect();
+    assert!(
+        ids.contains(&"BSD-3-Clause"),
+        "late snippet referenced: {ids:?}"
+    );
+}
+
+#[test]
+fn excluded_file_snippet_text_stays_required() {
+    // Declaration exclusion removes a file from policy drift (policy flows do
+    // not even read it), but lint ignores declaration exclusions: the snippet
+    // still exists in the tree, so its text stays required there.
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"vendored.rs\"]\n");
+    f.write(
+        "vendored.rs",
+        "// SPDX-License-Identifier: MIT\n// SPDX-FileCopyrightText: 2026 Acme\nfn f() {}\n// SPDX-SnippetBegin\n// SPDX-License-Identifier: BSD-3-Clause\nfn v() {}\n// SPDX-SnippetEnd\n",
+    )
+    .write("LICENSES/MIT.txt", licet::spdx::bundled_text("MIT").unwrap())
+    .commit("init");
+    let out = f
+        .licet()
+        .args(["lint", "--format", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "snippet text still required");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(
+        v["license_texts"]["missing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x == "BSD-3-Clause")
+    );
+}
+
 #[test]
 fn snippet_license_is_inventoried_but_not_file_drift() {
     // File is MIT; an embedded snippet is BSD-3-Clause. The file stays compliant on MIT,

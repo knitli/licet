@@ -20,6 +20,8 @@ fn drift_report_human() {
         )
         .write("c_missing.py", "z=3\n")
         .write("d_wrong.rs", "// SPDX-License-Identifier: MIT\nfn d(){}\n")
+        // Referenced texts exist so the snapshot stays about drift, not texts.
+        .texts(&["MIT", "Apache-2.0", "GPL-3.0-only"])
         .commit("init");
 
     let out = f.licet().args(["check"]).output().unwrap();
@@ -48,6 +50,7 @@ fn compliant_report_human() {
     let f = Fixture::new();
     f.config("[default]\nlicense=\"MIT\"\n[exclude]\npaths=[\"license.toml\"]\n")
         .write("a.py", "# SPDX-License-Identifier: MIT\nx=1\n")
+        .texts(&["MIT"])
         .commit("init");
 
     let out = f.licet().args(["check"]).output().unwrap();

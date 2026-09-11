@@ -206,8 +206,20 @@ pub struct HeaderBlock {
     pub byte_range: (usize, usize),
     /// License identifiers/expressions declared in this block.
     pub license_ids: Vec<String>,
+    /// Value byte spans `[start, end)` of each entry in [`Self::license_ids`],
+    /// parallel to it: `license_spans[i]` is exactly the SPDX value bytes that
+    /// produced `license_ids[i]` (leading whitespace and trailing comment
+    /// closers excluded). Reconciliation edits these spans instead of
+    /// re-deriving positions from rendered text, so trailing code on the same
+    /// line is never reparsed or touched (FR-007).
+    pub license_spans: Vec<(usize, usize)>,
     /// `SPDX-FileCopyrightText` lines found in this block.
     pub copyrights: Vec<String>,
+    /// Value byte spans `[start, end)` of each entry in [`Self::copyrights`],
+    /// parallel to it. Copyright values are never validated as SPDX (any text
+    /// may follow the marker), so spans additionally bound what a copyright
+    /// replacement may touch (FR-007, FR-009).
+    pub copyright_spans: Vec<(usize, usize)>,
     /// First-line context preceding the block.
     pub position_after: PositionAfter,
 }
@@ -236,14 +248,101 @@ pub enum Precedence {
     Override,
 }
 
-/// License/copyright covering a path from an out-of-band source (data-model §5).
+impl Precedence {
+    /// Lower-snake string used in configuration and JSON output.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Precedence::Closest => "closest",
+            Precedence::Aggregate => "aggregate",
+            Precedence::Override => "override",
+        }
+    }
+}
+
+/// Provenance of one metadata table contributing to a file's effective
+/// licensing: which document, which table, and what it contributed (FR-003a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetadataOrigin {
+    /// Repo-relative path of the metadata document (`REUSE.toml`,
+    /// `sub/REUSE.toml`, or `.reuse/dep5`).
+    pub metadata_path: PathBuf,
+    /// `[[annotations]]` (or dep5 paragraph) index within the document.
+    pub table_index: usize,
+    /// The table's own precedence (`dep5` is always `Aggregate`).
+    pub precedence: Precedence,
+    /// License expressions contributed by this table (validated, raw form).
+    pub licenses: Vec<String>,
+    /// Copyright notices contributed by this table.
+    pub copyrights: Vec<String>,
+}
+
+/// License/copyright covering a path from out-of-band sources, already
+/// resolved across the whole `REUSE.toml` hierarchy (data-model §5).
+///
+/// Resolution mirrors the reference REUSE tool: documents are consulted from
+/// the project root toward the file and stop after the first (`rootmost`)
+/// `override` table; `aggregate` tables always contribute; `closest` tables
+/// are a per-field fallback used only when file-level info lacks that field
+/// (and, when the file carries exactly one of the two fields, supply the
+/// other). `.reuse/dep5` paragraphs aggregate like any other table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutOfBandEntry {
+    /// Source of the primary contributor (first override/aggregate table, or
+    /// the fallback table when only `closest` tables matched).
     pub source: OobSource,
-    pub license: Option<String>,
+    /// Effective unconditional OOB licenses: the barrier table plus every
+    /// consulted `aggregate` table. Empty when no table supplied a license.
+    pub licenses: Vec<String>,
+    /// Effective unconditional OOB copyrights (same contributors as above).
     pub copyrights: Vec<String>,
-    /// How this entry combines with file-level info (default `Closest`).
+    /// Nearest-outward `closest` fallback licenses, used only when
+    /// file-level info carries no license for the path.
+    pub fallback_licenses: Vec<String>,
+    /// Nearest-outward `closest` fallback copyrights, used only when
+    /// file-level info carries no copyright for the path.
+    pub fallback_copyrights: Vec<String>,
+    /// True when a `rootmost` override barrier suppresses file/sidecar info
+    /// (and every deeper table) for this path.
+    pub suppresses_file: bool,
+    /// Governing precedence: `Override` under a barrier, else `Aggregate`
+    /// when any aggregate contributor exists, else `Closest`.
     pub precedence: Precedence,
+    /// Every contributing table, shallowest document first.
+    pub origins: Vec<MetadataOrigin>,
+}
+
+impl OutOfBandEntry {
+    /// Canonical single-value presentation of the effective OOB licenses:
+    /// one expression, or the `AND`-combination of several (data-model §5).
+    pub fn license(&self) -> Option<String> {
+        combine_licenses(&self.licenses)
+    }
+}
+
+/// Combine several license expressions into one `AND` expression, parenthesizing
+/// compound operands so `MIT OR Apache-2.0` plus `CC0-1.0` reads as
+/// `(MIT OR Apache-2.0) AND CC0-1.0` rather than changing meaning.
+pub fn combine_licenses(exprs: &[String]) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    for e in exprs {
+        let t = e.trim();
+        if t.is_empty() {
+            continue;
+        }
+        // Any multi-token expression is parenthesized (`WITH` binds tighter
+        // than `AND`, so this is conservative but never changes meaning).
+        let needs_parens = t.chars().any(char::is_whitespace);
+        if needs_parens && !(t.starts_with('(') && t.ends_with(')')) {
+            parts.push(format!("({t})"));
+        } else {
+            parts.push(t.to_string());
+        }
+    }
+    match parts.len() {
+        0 => None,
+        1 => Some(parts.remove(0)),
+        _ => Some(parts.join(" AND ")),
+    }
 }
 
 /// How `apply` covers a file that cannot carry an in-file comment header
@@ -278,6 +377,19 @@ impl ActualSource {
     }
 }
 
+/// One rejected `SPDX-License-Identifier` value: kept for diagnosis, never silently
+/// dropped (F13). The line is 1-based nearest-line; columns are deliberately not
+/// claimed (byte offsets shift under multibyte text).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidLicenseValue {
+    /// 1-based nearest line number of the tag.
+    pub line: usize,
+    /// The offending tag value verbatim.
+    pub value: String,
+    /// Why it was rejected (dependency parse error, summarized).
+    pub reason: String,
+}
+
 /// Everything detection found for a file (data-model §5, FR-003a).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActualLicenseState {
@@ -292,11 +404,19 @@ pub struct ActualLicenseState {
     /// All copyright lines found across sources.
     pub detected_copyrights: Vec<String>,
     /// Licenses declared for in-file SPDX snippets (`SPDX-SnippetBegin`..`SPDX-SnippetEnd`).
-    /// These describe snippets, not the file, so they never affect drift — but their texts
-    /// are still referenced for `LICENSES/` completeness (FR-030).
+    /// These describe snippets, not the file, so they never satisfy declared
+    /// policy drift — but their texts are still referenced for `LICENSES/`
+    /// completeness (FR-030), and REUSE validation counts them like the
+    /// reference tool does.
     pub snippet_licenses: Vec<String>,
+    /// Copyright notices declared inside SPDX snippet regions. Like snippet
+    /// licenses, these never satisfy declared policy, but REUSE validation
+    /// counts them toward the file's copyright requirement (reference parity).
+    pub snippet_copyrights: Vec<String>,
     /// False when the file is not valid UTF-8 (drives `Unreadable` — FR-025).
     pub encoding_ok: bool,
+    /// Rejected license values with their location (diagnosed, never dropped).
+    pub invalid_license_values: Vec<InvalidLicenseValue>,
 }
 
 /// Exhaustive, mutually-exclusive drift classification (FR-004, data-model §6).
@@ -306,6 +426,8 @@ pub enum DriftClass {
     Compliant,
     /// A header exists but the license differs from intent.
     WrongLicense { declared: String, actual: String },
+    /// The license matches but the copyright policy is unsatisfied.
+    CopyrightMismatch { declared: String, actual: String },
     /// Covered by intent but no header/out-of-band license present.
     MissingHeader,
     /// No rule, no default — not covered by any intent.
@@ -322,6 +444,7 @@ impl DriftClass {
         match self {
             DriftClass::Compliant => "compliant",
             DriftClass::WrongLicense { .. } => "wrong_license",
+            DriftClass::CopyrightMismatch { .. } => "copyright_mismatch",
             DriftClass::MissingHeader => "missing_header",
             DriftClass::Uncovered => "uncovered",
             DriftClass::Excluded => "excluded",
@@ -332,6 +455,104 @@ impl DriftClass {
     /// Whether this class fails the gate (FR-012a, FR-025). `Excluded`/`Compliant` pass.
     pub fn is_failure(&self) -> bool {
         !matches!(self, DriftClass::Compliant | DriftClass::Excluded)
+    }
+}
+
+/// Which content a scan evaluates: the working tree or the Git index (F06).
+/// Carried through every dependent read (source bytes, sidecars, metadata,
+/// configuration, license texts) so a snapshot never mixes the two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentSource {
+    /// Current working-tree bytes.
+    Worktree,
+    /// Git index blobs (`check --staged`).
+    Index,
+}
+
+impl ContentSource {
+    /// Lower-snake label used in report `snapshot` metadata.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ContentSource::Worktree => "worktree",
+            ContentSource::Index => "index",
+        }
+    }
+}
+
+/// Normalize a copyright notice for comparison: trim and collapse every
+/// whitespace run to a single space, so `2026   Acme` and `2026 Acme` compare
+/// equal without changing what is written (FR-009).
+pub fn normalize_copyright_notice(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether effective copyright notices satisfy a policy: `preserve` imposes no
+/// requirement; `add` needs existing notices plus the requested normalized
+/// notice; `replace` needs exactly the requested normalized notice.
+pub fn copyright_policy_satisfied(policy: &CopyrightPolicy, effective: &[String]) -> bool {
+    match policy {
+        CopyrightPolicy::Preserve => true,
+        CopyrightPolicy::PreserveAndAdd(want) => {
+            let want = normalize_copyright_notice(want);
+            !effective.is_empty()
+                && effective
+                    .iter()
+                    .any(|c| normalize_copyright_notice(c) == want)
+        }
+        CopyrightPolicy::Replace(want) => {
+            let want = normalize_copyright_notice(want);
+            let mut have: Vec<String> = effective
+                .iter()
+                .map(|c| normalize_copyright_notice(c))
+                .collect();
+            have.sort();
+            have == vec![want]
+        }
+    }
+}
+
+/// Whether two intents are identical: semantically equal license expressions
+/// and equal copyright policies over normalized text. Equal-specificity rules
+/// with differing full intent are a conflict; identical intent resolves to
+/// earliest declaration order (FR-002, FR-022).
+pub fn intents_equal(a: &LicenseIntent, b: &LicenseIntent) -> bool {
+    if !crate::spdx::expressions_equal(&a.license_expression, &b.license_expression) {
+        return false;
+    }
+    match (&a.copyright_policy, &b.copyright_policy) {
+        (CopyrightPolicy::Preserve, CopyrightPolicy::Preserve) => true,
+        (CopyrightPolicy::PreserveAndAdd(x), CopyrightPolicy::PreserveAndAdd(y))
+        | (CopyrightPolicy::Replace(x), CopyrightPolicy::Replace(y)) => {
+            normalize_copyright_notice(x) == normalize_copyright_notice(y)
+        }
+        _ => false,
+    }
+}
+
+/// A retained copyright mismatch: the license matched but the copyright policy
+/// did not (primary drift), or neither matched (kept as a diagnostic next to
+/// `WrongLicense`, data-model §6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopyrightDrift {
+    /// The policy requirement, e.g. `add:2026 Acme`.
+    pub declared: String,
+    /// Effective notices joined with `; `, or `<none>`.
+    pub actual: String,
+}
+
+impl CopyrightDrift {
+    pub fn new(policy: &CopyrightPolicy, effective: &[String]) -> Self {
+        let declared = match policy {
+            CopyrightPolicy::Preserve => "preserve".to_string(),
+            CopyrightPolicy::PreserveAndAdd(t) => format!("add:{t}"),
+            CopyrightPolicy::Replace(t) => format!("replace:{t}"),
+        };
+        let actual = if effective.is_empty() {
+            "<none>".to_string()
+        } else {
+            effective.join("; ")
+        };
+        CopyrightDrift { declared, actual }
     }
 }
 
@@ -354,6 +575,9 @@ pub struct FileLicensingState {
     pub actual: ActualLicenseState,
     pub drift: DriftClass,
     pub conflict: Option<RuleConflict>,
+    /// Copyright mismatch detail: primary when the license matched but the
+    /// copyright policy did not, diagnostic when both differ.
+    pub copyright_drift: Option<CopyrightDrift>,
 }
 
 /// Additive vs destructive reconciliation mode (FR-007).
@@ -370,6 +594,117 @@ impl ChangeMode {
         match self {
             ChangeMode::Additive => "additive",
             ChangeMode::Destructive => "destructive",
+        }
+    }
+}
+
+/// What a planned write mutates (report contract v2, FR-021).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteKind {
+    /// An in-file source edit (header insert/replace/append).
+    Source,
+    /// A `<file>.license` sidecar body.
+    Sidecar,
+    /// A `REUSE.toml` document patch (one or more exact-path stanzas).
+    ReuseToml,
+    /// A `LICENSES/<id>.txt` text install.
+    LicenseText,
+    /// A generated configuration file (`init`, task 8).
+    Config,
+}
+
+impl WriteKind {
+    /// Lower-snake string used in JSON output.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WriteKind::Source => "source",
+            WriteKind::Sidecar => "sidecar",
+            WriteKind::ReuseToml => "reuse_toml",
+            WriteKind::LicenseText => "license_text",
+            WriteKind::Config => "config",
+        }
+    }
+}
+
+/// One concrete filesystem mutation, independent of file states: the same
+/// records drive dry-run previews and real execution (FR-021). Byte buffers
+/// stay internal; JSON serializes text/diffs only for text being written.
+#[derive(Debug, Clone)]
+pub struct PlannedWrite {
+    /// Destination written (the document itself for metadata patches).
+    pub path: PathBuf,
+    pub kind: WriteKind,
+    /// Expected current bytes (`None` = the destination must not exist).
+    /// Evaluated before every write; a mismatch blocks it.
+    pub before: Option<Vec<u8>>,
+    /// Bytes to install (`None` for blocked writes with no known result,
+    /// e.g. a fetch that never ran).
+    pub after: Option<Vec<u8>>,
+    /// Selected files this write covers (the assets behind a metadata patch).
+    pub affected_files: Vec<PathBuf>,
+}
+
+/// Outcome of one planned write (report contract v2, FR-021).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteStatus {
+    /// Previewed but not executed (dry-run).
+    Planned,
+    /// Bytes committed.
+    Applied,
+    /// Evaluated and left alone (converged rerun — normally absent, since
+    /// converged runs emit no write records at all).
+    Unchanged,
+    /// Attempted and failed; `message` says why.
+    Failed,
+    /// Refused before any attempt (a missing custom text, an unpermitted
+    /// fetch); `message` names the requirement.
+    Blocked,
+}
+
+impl WriteStatus {
+    /// Lower-snake string used in JSON output.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WriteStatus::Planned => "planned",
+            WriteStatus::Applied => "applied",
+            WriteStatus::Unchanged => "unchanged",
+            WriteStatus::Failed => "failed",
+            WriteStatus::Blocked => "blocked",
+        }
+    }
+}
+
+/// One executed (or refused) write plus its outcome for the report.
+#[derive(Debug, Clone)]
+pub struct ExecutedWrite {
+    pub write: PlannedWrite,
+    pub status: WriteStatus,
+    /// Human-readable reason for `Failed`/`Blocked` (fetch URL, missing id…).
+    pub message: Option<String>,
+    /// True when the replacement bytes were committed even though the outcome
+    /// is otherwise a failure (durability sync after a successful rename):
+    /// such a write counts as a change for partial-result accounting.
+    pub replacement_completed: bool,
+}
+
+impl ExecutedWrite {
+    /// A previewed-but-unexecuted write (dry-run).
+    pub fn planned(write: PlannedWrite) -> Self {
+        ExecutedWrite {
+            write,
+            status: WriteStatus::Planned,
+            message: None,
+            replacement_completed: false,
+        }
+    }
+
+    /// A refused write (missing text, unpermitted fetch).
+    pub fn blocked(write: PlannedWrite, message: impl Into<String>) -> Self {
+        ExecutedWrite {
+            write,
+            status: WriteStatus::Blocked,
+            message: Some(message.into()),
+            replacement_completed: false,
         }
     }
 }

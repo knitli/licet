@@ -34,7 +34,9 @@ fn marque_repo() -> Fixture {
         )
         .write("nolicense.txt.rs", "fn y(){}\n")
         .write("uncovered.unknownext", "data\n")
-        .write("vendor/x.rs", "vendored\n");
+        .write("vendor/x.rs", "vendored\n")
+        // Default coverage is tracked files.
+        .commit("init");
     f
 }
 
@@ -66,10 +68,16 @@ fn check_reports_drift_classes_and_exits_1() {
 #[test]
 fn compliant_files_pass() {
     let f = Fixture::new();
-    f.config(MARQUE).write(
-        "src/lib.rs",
-        "// SPDX-License-Identifier: LicenseRef-MarqueLicense-1.0\nfn x(){}\n",
-    );
+    f.config(MARQUE)
+        .write(
+            "src/lib.rs",
+            "// SPDX-License-Identifier: LicenseRef-MarqueLicense-1.0\nfn x(){}\n",
+        )
+        // Policy check requires the referenced custom text to exist.
+        .write(
+            "LICENSES/LicenseRef-MarqueLicense-1.0.txt",
+            "Custom marque license text.\n",
+        );
     // Evaluate only the compliant rust file (FR-013 subset) — exits 0.
     let out = f
         .licet()
@@ -108,9 +116,94 @@ fn json_output_has_summary_counts() {
         .output()
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["version"], 1);
+    assert_eq!(v["version"], 2);
+    assert_eq!(v["snapshot"], "worktree");
     assert!(v["summary"]["counts"]["wrong_license"].as_u64().unwrap() >= 1);
     assert_eq!(v["summary"]["pass"], false);
+    assert_eq!(v["summary"]["complete"], true);
+}
+
+#[test]
+fn check_requires_texts_for_selected_scope() {
+    // Referenced texts are required even when every drift is compliant.
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n")
+        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n");
+    let out = f
+        .licet()
+        .args(["check", "--files", "a.rs"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("missing_license_text"), "{stdout}");
+    assert!(stdout.contains("MIT"), "{stdout}");
+    // Supplying the text flips the same gate to green.
+    f.write(
+        "LICENSES/MIT.txt",
+        licet::spdx::bundled_text("MIT").unwrap(),
+    );
+    let out = f
+        .licet()
+        .args(["check", "--files", "a.rs"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{stdout}");
+}
+
+#[test]
+fn check_ignores_texts_of_unreachable_desired_rules() {
+    // A rule matching nothing contributes no desired references: its missing
+    // text cannot fail a selected-file policy check (only full lint sees it).
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n[[rule]]\nglob=\"special/**\"\nlicense=\"Apache-2.0\"\n")
+        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
+        .texts(&["MIT"]);
+    let out = f
+        .licet()
+        .args(["check", "--files", "a.rs"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+#[test]
+fn copyright_mismatch_is_its_own_drift_and_failure() {
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\ncopyright=\"add:2026 Acme\"\n")
+        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
+        .texts(&["MIT"]);
+    let out = f
+        .licet()
+        .args(["check", "--format", "json", "--files", "a.rs"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let entry = v["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["path"] == "a.rs")
+        .unwrap();
+    assert_eq!(entry["drift"], "copyright_mismatch");
+    assert_eq!(entry["declared"], "add:2026 Acme");
+    // The requested notice alongside history satisfies the policy.
+    f.write(
+        "a.rs",
+        "// SPDX-License-Identifier: MIT\n// SPDX-FileCopyrightText: 2024 Old\n// SPDX-FileCopyrightText: 2026 Acme\nfn a(){}\n",
+    );
+    let out = f
+        .licet()
+        .args(["check", "--files", "a.rs"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
 }
 
 #[test]
@@ -121,7 +214,9 @@ fn semantic_expression_equivalence_is_compliant() {
         .write(
             "a.rs",
             "// SPDX-License-Identifier: Apache-2.0 OR MIT\nfn a(){}\n",
-        );
+        )
+        // Policy check requires both referenced texts.
+        .texts(&["MIT", "Apache-2.0"]);
     let out = f
         .licet()
         .args(["check", "--files", "a.rs"])

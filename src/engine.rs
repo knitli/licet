@@ -7,66 +7,131 @@ use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 
-use crate::comment::CommentResolver;
-use crate::detect::{self};
+use crate::detect;
 use crate::domain::{ActualLicenseState, DriftClass, FileLicensingState, Precedence};
 use crate::error::Result;
-use crate::report::Warning;
+use crate::report::Diagnostic;
 use crate::report::classify::{ClassifyInput, classify};
 use crate::reuse::oob::OutOfBand;
 use crate::rules::{Match, RuleSet};
-use crate::walk::cache::ScanCache;
-use crate::walk::{self, Discovered, Selection};
+use crate::walk::{Discovered, Snapshot};
 use crate::{config::LicensingConfiguration, spdx};
 
-/// Context for a scan: repository root and validated config.
+/// Context for a scan: repository root, validated config, the content snapshot
+/// every read observes, and whether declaration `[exclude]` rules apply
+/// (`lint` validates REUSE coverage and never applies them). Scans are
+/// stateless: every run classifies from current bytes, with no cache.
 pub struct Engine<'a> {
     pub root: PathBuf,
     pub config: &'a LicensingConfiguration,
-    pub config_text: &'a str,
+    pub snapshot: Snapshot,
+    pub honor_declaration_excludes: bool,
 }
 
 /// Result of a scan: classified states plus any warnings collected along the way.
 pub struct ScanResult {
     pub states: Vec<FileLicensingState>,
-    pub warnings: Vec<Warning>,
+    pub warnings: Vec<Diagnostic>,
     /// Every license identifier referenced by config or detected in files (for inventory).
     pub referenced_ids: BTreeSet<String>,
+    /// Identifiers effectively present in evaluated files (file headers,
+    /// sidecars, OOB contributions, and snippet expressions) — the REUSE
+    /// actual inventory. Suppressed values and unused config rules are
+    /// excluded.
+    pub actual_referenced_ids: BTreeSet<String>,
+    /// Identifiers declared for evaluated files (winning intents only, never
+    /// unmatched rules) — the policy desired set.
+    pub desired_referenced_ids: BTreeSet<String>,
 }
 
 impl<'a> Engine<'a> {
-    pub fn new(root: PathBuf, config: &'a LicensingConfiguration, config_text: &'a str) -> Self {
+    pub fn new(
+        root: PathBuf,
+        config: &'a LicensingConfiguration,
+        snapshot: Snapshot,
+        honor_declaration_excludes: bool,
+    ) -> Self {
         Engine {
             root,
             config,
-            config_text,
+            snapshot,
+            honor_declaration_excludes,
         }
     }
 
-    /// Scan the selected files, classifying each.
-    pub fn scan(&self, selection: &Selection, cache: &mut ScanCache) -> Result<ScanResult> {
-        let discovered = walk::enumerate(&self.root, selection, &self.config.exclude)?;
+    /// Scan the prepared files, classifying each from current bytes.
+    pub fn scan(&self, paths: &[Discovered]) -> Result<ScanResult> {
         let rules = RuleSet::new(self.config);
-        let resolver = CommentResolver::new(self.config);
-        let oob = OutOfBand::load(&self.root);
+        let oob = OutOfBand::load_snapshot(&self.snapshot)?;
+        let excludes = if self.honor_declaration_excludes {
+            Some(crate::walk::build_excludes(&self.config.exclude)?)
+        } else {
+            None
+        };
 
-        // Parallel detect + classify. Cache is consulted/updated sequentially afterward to
-        // avoid lock contention; on a warm hit the file IS still read but classification is
-        // trusted from the cache key (content+config+version), guaranteeing no stale verdict.
-        let mut results: Vec<(FileLicensingState, Option<String>, String)> = discovered
+        // Parallel detect + classify over the selected files only.
+        let mut results: Vec<(FileLicensingState, Option<Diagnostic>)> = paths
             .par_iter()
-            .map(|d| self.classify_one(d, &rules, &resolver, &oob, cache))
+            .map(|d| self.classify_one(d, &rules, &oob, excludes.as_ref()))
             .collect();
 
-        // Apply cache, collect warnings and referenced ids.
+        // Orphan sidecars (a `.license` file whose companion is absent from the
+        // snapshot) are diagnosed, never silently evaluated or ignored.
         let mut warnings = Vec::new();
+        for d in paths {
+            if !d
+                .rel_path
+                .extension()
+                .map(|e| e == "license")
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let companion = companion_of(&d.rel_path);
+            let absent = self
+                .snapshot
+                .read(&companion)
+                .map(|b| b.is_none())
+                .unwrap_or(false);
+            if absent {
+                warnings.push(Diagnostic {
+                    code: "orphan_sidecar".to_string(),
+                    path: Some(d.rel_path.to_string_lossy().replace('\\', "/")),
+                    message: format!(
+                        "sidecar has no companion file {} in the evaluated snapshot",
+                        companion.display()
+                    ),
+                });
+            }
+        }
+
+        // Collect warnings and referenced ids.
         let mut referenced_ids = self.config_referenced_ids();
+        let mut actual_referenced_ids = BTreeSet::new();
+        let mut desired_referenced_ids = BTreeSet::new();
         let mut states = Vec::with_capacity(results.len());
-        for (state, content_hash, _drift_label) in results.drain(..) {
+        for (state, read_warning) in results.drain(..) {
+            if let Some(w) = read_warning {
+                warnings.push(w);
+            }
+            // A copyright mismatch next to license drift stays visible as its
+            // own diagnostic instead of disappearing into `wrong_license`.
+            if let Some(cd) = &state.copyright_drift
+                && matches!(state.drift, DriftClass::WrongLicense { .. })
+            {
+                warnings.push(Diagnostic {
+                    code: "copyright_mismatch".to_string(),
+                    path: Some(state.path.to_string_lossy().replace('\\', "/")),
+                    message: format!(
+                        "copyright policy requires `{}` but found {}",
+                        cd.declared, cd.actual
+                    ),
+                });
+            }
             // Conflict / source-override warnings.
             if let Some(conf) = &state.conflict {
-                warnings.push(Warning {
-                    kind: "rule_conflict".to_string(),
+                warnings.push(Diagnostic {
+                    code: "rule_conflict".to_string(),
                     path: Some(state.path.to_string_lossy().replace('\\', "/")),
                     message: conf.message.clone(),
                 });
@@ -81,31 +146,39 @@ impl<'a> Engine<'a> {
                 .is_some_and(|o| o.precedence == Precedence::Override)
                 && has_header_disagreement(&state.actual)
             {
-                warnings.push(Warning {
-                    kind: "source_override".to_string(),
+                warnings.push(Diagnostic {
+                    code: "source_override".to_string(),
                     path: Some(state.path.to_string_lossy().replace('\\', "/")),
                     message: "in-file header disagrees with out-of-band metadata; out-of-band entry has precedence = override".to_string(),
                 });
             }
             if matches!(state.drift, DriftClass::Unreadable) {
-                warnings.push(Warning {
-                    kind: "encoding_skipped".to_string(),
+                warnings.push(Diagnostic {
+                    code: "encoding_skipped".to_string(),
                     path: Some(state.path.to_string_lossy().replace('\\', "/")),
                     message: "file is not valid UTF-8; skipped and counted as failure".to_string(),
                 });
             }
-            if let Some(l) = &state.actual.detected_license {
-                referenced_ids.insert(l.clone());
+            // Every effective file expression counts for text inventory —
+            // including aggregate/fallback OOB contributions, not just the
+            // primary presentation value (FR-003a, FR-030).
+            for l in crate::detect::candidate_licenses(&state.actual) {
+                collect_ids(&l, &mut referenced_ids);
+                collect_ids(&l, &mut actual_referenced_ids);
+            }
+            // Declared intent of evaluated files only: unmatched rules never
+            // inflate the desired set, and excluded files are out of scope.
+            if !matches!(state.drift, DriftClass::Excluded)
+                && let Some(intent) = &state.declared_intent
+            {
+                collect_ids(&intent.license_expression, &mut referenced_ids);
+                collect_ids(&intent.license_expression, &mut desired_referenced_ids);
             }
             // SPDX-snippet licenses are not the file's license, but their texts must still
             // exist under LICENSES/ for REUSE compliance (FR-030).
             for s in &state.actual.snippet_licenses {
                 collect_ids(s, &mut referenced_ids);
-            }
-            // Update cache.
-            if let Some(hash) = content_hash {
-                let rel = state.path.to_string_lossy().replace('\\', "/");
-                cache.put(&rel, &hash, state.drift.as_str());
+                collect_ids(s, &mut actual_referenced_ids);
             }
             states.push(state);
         }
@@ -114,19 +187,21 @@ impl<'a> Engine<'a> {
             states,
             warnings,
             referenced_ids,
+            actual_referenced_ids,
+            desired_referenced_ids,
         })
     }
 
-    /// Detect + classify a single discovered file.
+    /// Detect + classify a single discovered file. Snapshot read failures become
+    /// an `Unreadable` state with a `read_error` warning carrying path + reason
+    /// (F13) — never silent absence, never missing-header drift.
     fn classify_one(
         &self,
         d: &Discovered,
         rules: &RuleSet<'a>,
-        resolver: &CommentResolver,
         oob: &OutOfBand,
-        cache: &ScanCache,
-    ) -> (FileLicensingState, Option<String>, String) {
-        let _ = resolver; // resolver is used by apply; kept here for symmetry.
+        excludes: Option<&globset::GlobSet>,
+    ) -> (FileLicensingState, Option<Diagnostic>) {
         let rel = &d.rel_path;
 
         // Resolve the rule (cheap, no IO) — done for every file so excluded files still
@@ -138,7 +213,11 @@ impl<'a> Engine<'a> {
             Match::Conflict(c) => (None, None, Some(c)),
         };
 
-        if d.excluded {
+        // Declaration exclusions apply to policy scans only; REUSE ignores always apply.
+        let declaration_excluded = excludes
+            .map(|set| set.is_match(rel.to_string_lossy().replace('\\', "/")))
+            .unwrap_or(false);
+        if d.reuse_ignored || declaration_excluded {
             let state = classify(ClassifyInput {
                 path: rel.clone(),
                 matched_rule,
@@ -147,26 +226,74 @@ impl<'a> Engine<'a> {
                 conflict,
                 excluded: true,
             });
-            return (state, None, "excluded".to_string());
+            return (state, None);
         }
 
-        // Read head (+ any `.license` sidecar) and detect.
-        let head = detect::read_head(&d.abs_path).unwrap_or_default();
-        let sidecar = detect::read_sidecar(&d.abs_path);
-        let content_hash = ScanCache::content_hash(&head);
-        let _ = cache.get(rel.to_string_lossy().as_ref(), &content_hash); // hit recorded; full detail recomputed
-        let actual = detect::detect(rel, &head, sidecar.as_deref(), oob);
+        // Read through the snapshot (head + any `.license` sidecar) and detect.
+        // Any read failure becomes Unreadable with a path-attached reason.
+        let unreadable = |message: String| {
+            let warning = Diagnostic {
+                code: "read_error".to_string(),
+                path: Some(rel.to_string_lossy().replace('\\', "/")),
+                message,
+            };
+            let state = classify(ClassifyInput {
+                path: rel.clone(),
+                matched_rule: matched_rule.clone(),
+                declared: declared.as_ref(),
+                actual: ActualLicenseState {
+                    encoding_ok: false,
+                    ..Default::default()
+                },
+                conflict: conflict.clone(),
+                excluded: false,
+            });
+            (state, Some(warning))
+        };
+        let bytes = match self.snapshot.read(rel) {
+            Ok(b) => b,
+            Err(e) => return unreadable(format!("cannot read file for evaluation: {e}")),
+        };
+        let sidecar_rel = crate::walk::git::sidecar_for(rel);
+        let sidecar_bytes = match self.snapshot.read(&sidecar_rel) {
+            Ok(b) => b,
+            Err(e) => {
+                return unreadable(format!(
+                    "cannot read sidecar {}: {e}",
+                    sidecar_rel.display()
+                ));
+            }
+        };
+        // Complete content is scanned (no head cutoff — task 3).
+        let full = bytes.as_deref().unwrap_or_default();
+        let sidecar_opt = sidecar_bytes.as_deref();
+        let actual = detect::detect(rel, full, sidecar_opt, oob);
 
+        // Rejected license values are diagnosed in-band with line + value.
+        let invalid_warning = if actual.invalid_license_values.is_empty() {
+            None
+        } else {
+            let details = actual
+                .invalid_license_values
+                .iter()
+                .map(|v| format!("line {}: `{}` ({})", v.line, v.value, v.reason))
+                .collect::<Vec<_>>()
+                .join("; ");
+            Some(Diagnostic {
+                code: "invalid_license".to_string(),
+                path: Some(rel.to_string_lossy().replace('\\', "/")),
+                message: format!("invalid SPDX-License-Identifier value: {details}"),
+            })
+        };
         let state = classify(ClassifyInput {
             path: rel.clone(),
-            matched_rule,
+            matched_rule: matched_rule.clone(),
             declared: declared.as_ref(),
             actual,
-            conflict,
+            conflict: conflict.clone(),
             excluded: false,
         });
-        let drift_label = state.drift.as_str().to_string();
-        (state, Some(content_hash), drift_label)
+        (state, invalid_warning)
     }
 
     /// Identifiers referenced by config (`default` + rules).
@@ -182,46 +309,44 @@ impl<'a> Engine<'a> {
     }
 }
 
-/// True when in-file headers and out-of-band metadata disagree on the license.
+/// True when in-file headers and suppressing out-of-band metadata disagree on
+/// the license (an `override` barrier makes the header ineffective).
 fn has_header_disagreement(actual: &ActualLicenseState) -> bool {
-    let header_lic = actual
+    let Some(o) = actual.out_of_band.as_ref() else {
+        return false;
+    };
+    if !o.suppresses_file {
+        return false;
+    }
+    let header_lics: Vec<String> = actual
         .headers
         .iter()
         .flat_map(|h| h.license_ids.clone())
-        .next();
-    match (&actual.out_of_band, header_lic) {
-        (Some(o), Some(h)) => match &o.license {
-            Some(ol) => !spdx::expressions_equal(ol, &h),
-            None => false,
-        },
+        .collect();
+    match (
+        crate::domain::combine_licenses(&header_lics),
+        crate::domain::combine_licenses(&o.licenses),
+    ) {
+        (Some(h), Some(ol)) => !spdx::expressions_equal(&ol, &h),
         _ => false,
     }
 }
 
-/// Split an SPDX expression into its constituent identifiers and collect them.
-fn collect_ids(expr: &str, out: &mut BTreeSet<String>) {
-    for tok in expr.split([' ', '(', ')']) {
-        let t = tok.trim().trim_end_matches('+');
-        if t.is_empty() {
-            continue;
-        }
-        if t.eq_ignore_ascii_case("OR")
-            || t.eq_ignore_ascii_case("AND")
-            || t.eq_ignore_ascii_case("WITH")
-        {
-            continue;
-        }
-        out.insert(t.to_string());
+/// Split an SPDX expression into its constituent identifiers and collect them
+/// (AST-based, so tabs and casing variants split correctly).
+pub(crate) fn collect_ids(expr: &str, out: &mut BTreeSet<String>) {
+    for id in crate::spdx::expression_ids(expr) {
+        out.insert(id);
     }
 }
 
-/// Default cache path. Stored inside `.git/` when present so it never dirties the working
-/// tree (which would otherwise block `apply`'s clean-tree guard); falls back to the root.
-pub fn default_cache_path(root: &Path) -> PathBuf {
-    let git_dir = root.join(".git");
-    if git_dir.is_dir() {
-        git_dir.join("licet-cache")
-    } else {
-        root.join(".licet-cache")
+/// Strip a trailing `.license` sidecar suffix to get the companion asset path.
+fn companion_of(sidecar: &Path) -> PathBuf {
+    let name = sidecar
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned());
+    match name.and_then(|n| n.strip_suffix(".license").map(str::to_string)) {
+        Some(base) => sidecar.with_file_name(base),
+        None => sidecar.to_path_buf(),
     }
 }

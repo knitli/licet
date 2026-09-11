@@ -39,9 +39,9 @@ fn partial_apply_exits_3_and_reports_changed_vs_unchanged() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["summary"]["partial"], true);
     // The writable file was changed; a partial_apply warning names the failed one.
-    let warnings = v["warnings"].as_array().cloned().unwrap_or_default();
+    let diagnostics = v["diagnostics"].as_array().cloned().unwrap_or_default();
     assert!(
-        warnings.iter().any(|w| w["kind"] == "partial_apply"),
+        diagnostics.iter().any(|w| w["code"] == "partial_apply"),
         "expected partial_apply warning: {}",
         String::from_utf8_lossy(&out.stdout)
     );

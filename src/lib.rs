@@ -10,6 +10,7 @@ pub mod detect;
 pub mod domain;
 pub mod engine;
 pub mod error;
+pub mod exec;
 pub mod reconcile;
 pub mod report;
 pub mod reuse;

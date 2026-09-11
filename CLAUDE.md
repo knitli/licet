@@ -84,8 +84,8 @@ Supporting modules:
   from `assets/licenses/*.txt` into `OUT_DIR/licet_licenses.rs`, `include!`d here.
 - `src/report/` — `Report` JSON model (matches `contracts/report.schema.json`) and the
   human renderer.
-- `src/walk/cache.rs` — scan cache keyed by content+config+SPDX-version, stored in
-  `.git/licet-cache` so it never dirties the working tree.
+- `src/walk/` — file enumeration with no scan cache: every run classifies from
+  current bytes (stateless), so repeat runs are identical by construction.
 
 ### Adding a bundled license
 
