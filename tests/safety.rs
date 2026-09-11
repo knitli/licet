@@ -27,8 +27,10 @@ fn apply_refuses_on_dirty_tree() {
 fn apply_allow_dirty_overrides() {
     let f = Fixture::new();
     f.config("[default]\nlicense=\"MIT\"\n")
-        .write("a.rs", "fn a(){}\n");
-    // Never committed → dirty, but --allow-dirty proceeds.
+        .write("a.rs", "fn a(){}\n")
+        .commit("init");
+    // Dirty working tree, but --allow-dirty proceeds.
+    f.write("a.rs", "fn a(){}\n// edited\n");
     let out = f.licet().args(["apply", "--allow-dirty"]).output().unwrap();
     assert_ne!(
         out.status.code(),
@@ -75,9 +77,9 @@ fn override_precedence_wins_over_header_with_source_override_warning() {
         "{}",
         String::from_utf8_lossy(&out.stdout)
     );
-    let warnings = v["warnings"].as_array().cloned().unwrap_or_default();
+    let diagnostics = v["diagnostics"].as_array().cloned().unwrap_or_default();
     assert!(
-        warnings.iter().any(|w| w["kind"] == "source_override"),
+        diagnostics.iter().any(|w| w["code"] == "source_override"),
         "expected source_override warning: {}",
         String::from_utf8_lossy(&out.stdout)
     );
@@ -108,9 +110,9 @@ fn closest_precedence_default_lets_in_file_header_win() {
         "{}",
         String::from_utf8_lossy(&out.stdout)
     );
-    let warnings = v["warnings"].as_array().cloned().unwrap_or_default();
+    let diagnostics = v["diagnostics"].as_array().cloned().unwrap_or_default();
     assert!(
-        !warnings.iter().any(|w| w["kind"] == "source_override"),
+        !diagnostics.iter().any(|w| w["code"] == "source_override"),
         "closest precedence must not emit source_override: {}",
         String::from_utf8_lossy(&out.stdout)
     );
@@ -128,6 +130,61 @@ fn line_endings_preserved_on_write() {
     assert!(
         content.contains("SPDX-License-Identifier: MIT\r\n"),
         "CRLF preserved: {content:?}"
+    );
+}
+#[cfg(unix)]
+#[test]
+fn apply_does_not_follow_predictable_temp_symlink() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n")
+        .write("a.rs", "fn a() {}\n");
+    let outside = tempfile::tempdir().unwrap();
+    let sentinel = outside.path().join("sentinel");
+    std::fs::write(&sentinel, b"KEEP").unwrap();
+    symlink(&sentinel, f.path().join(".a.rs.licet.tmp")).unwrap();
+    let out = f
+        .licet()
+        .args(["apply", "--allow-dirty", "--files", "a.rs"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{:?}", out);
+    assert_eq!(std::fs::read(&sentinel).unwrap(), b"KEEP");
+    assert!(
+        !std::fs::symlink_metadata(f.path().join("a.rs"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
+
+#[test]
+fn span_replace_preserves_surrounding_code() {
+    // Destructive apply swaps exactly the license value bytes: a code prefix
+    // and a same-line closer on the tag's line survive byte-for-byte.
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"Apache-2.0\"\n")
+        .write("a.rs", "fn a(){} /* SPDX-License-Identifier: MIT */\n")
+        .commit("init");
+
+    let out = f.licet().arg("apply").output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(
+        f.read("a.rs"),
+        "fn a(){} /* SPDX-License-Identifier: Apache-2.0 */\n"
+    );
+
+    let check = f.licet().arg("check").output().unwrap();
+    assert_eq!(
+        check.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&check.stdout)
     );
 }
 // REUSE-IgnoreEnd

@@ -1,9 +1,9 @@
-//! Raw `serde` deserialization shapes for `license.toml` (contracts/config-schema.md).
+//! Raw `serde` deserialization shapes for `licet.toml` (contracts/config-schema.md).
 //! Validated into the domain [`super::LicensingConfiguration`] by `super::mod`.
 
 use serde::Deserialize;
 
-/// Top-level `license.toml` document.
+/// Top-level `licet.toml` document.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawConfig {

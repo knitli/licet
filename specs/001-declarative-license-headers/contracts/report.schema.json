@@ -7,22 +7,27 @@
   "required": ["version", "command", "summary", "files"],
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "integer", "const": 1 },
+    "version": { "type": "integer", "const": 2 },
     "command": { "type": "string", "enum": ["check", "apply", "lint", "add-license"] },
     "exit_code": { "type": "integer", "enum": [0, 1, 2, 3] },
+    "snapshot": { "type": "string", "description": "How the evaluated content was sourced: worktree or index." },
     "summary": {
       "type": "object",
-      "required": ["pass", "counts"],
+      "required": ["pass", "complete", "counts"],
       "additionalProperties": false,
       "properties": {
-        "pass": { "type": "boolean", "description": "True only if no file is WrongLicense/MissingHeader/Uncovered/Unreadable and no unresolved conflict (FR-012a, FR-025, SC-009)." },
-        "partial": { "type": "boolean", "description": "Apply could not complete fully (FR-021)." },
+        "pass": { "type": "boolean", "description": "True only if no file is WrongLicense/CopyrightMismatch/MissingHeader/Uncovered/Unreadable, no unresolved conflict, and no blocked license text (FR-012a, FR-025, SC-009). For apply dry-run, true means projected success. Lint additionally requires a complete license-text inventory." },
+        "partial": { "type": "boolean", "description": "Apply wrote files and the tool itself also failed (FR-021)." },
+        "complete": { "type": "boolean", "description": "False when final verification did not run and the report rests on planned data." },
+        "before_pass": { "type": ["boolean", "null"], "description": "Apply only: gate state before apply ran." },
+        "projected_pass": { "type": ["boolean", "null"], "description": "Apply dry-run only: whether executing the planned writes is projected to pass." },
         "counts": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "compliant": { "type": "integer", "minimum": 0 },
             "wrong_license": { "type": "integer", "minimum": 0 },
+            "copyright_mismatch": { "type": "integer", "minimum": 0, "description": "Files whose license matches but whose copyright policy is unsatisfied." },
             "missing_header": { "type": "integer", "minimum": 0 },
             "uncovered": { "type": "integer", "minimum": 0 },
             "excluded": { "type": "integer", "minimum": 0 },
@@ -43,7 +48,7 @@
           "path": { "type": "string" },
           "drift": {
             "type": "string",
-            "enum": ["compliant", "wrong_license", "missing_header", "uncovered", "excluded", "unreadable"]
+            "enum": ["compliant", "wrong_license", "copyright_mismatch", "missing_header", "uncovered", "excluded", "unreadable"]
           },
           "declared": { "type": ["string", "null"], "description": "Declared SPDX expression from the matched rule or default." },
           "actual": { "type": ["string", "null"], "description": "Detected SPDX expression (in-file header or out-of-band)." },
@@ -73,23 +78,63 @@
               "applied": { "type": "boolean", "description": "False on dry-run or when this file's write failed (FR-021)." }
             },
             "description": "Present for apply (or dry-run preview). Copyright preserved by default (SC-004)."
+          },
+          "metadata_origins": {
+            "type": "array",
+            "description": "Contributing out-of-band tables, shallowest document first (FR-003a).",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "metadata": { "type": "string" },
+                "table": { "type": "integer", "minimum": 0 },
+                "precedence": { "type": "string", "enum": ["closest", "aggregate", "override"] },
+                "licenses": { "type": "array", "items": { "type": "string" } },
+                "copyrights": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": ["metadata", "table", "precedence", "licenses", "copyrights"]
+            }
           }
         }
       }
     },
-    "warnings": {
+    "coverage": {
       "type": "array",
+      "description": "Lint only: sorted repo-relative covered paths evaluated for REUSE validation (REUSE-ignored files excluded). Compared against the reference tool's file list in the differential suite.",
+      "items": { "type": "string" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "description": "Structured diagnostics, sorted by path, then code.",
       "items": {
         "type": "object",
-        "required": ["kind", "message"],
+        "required": ["code", "message"],
         "additionalProperties": false,
         "properties": {
-          "kind": {
+          "code": {
             "type": "string",
-            "enum": ["contradiction", "rule_conflict", "missing_license_text", "partial_apply", "source_override", "encoding_skipped"]
+            "enum": ["contradiction", "rule_conflict", "missing_license_text", "unused_license_text", "bad_license_text", "missing_license_extension", "partial_apply", "source_override", "encoding_skipped", "missing_copyright", "missing_license", "invalid_license", "read_error", "unsupported_encoding", "copyright_mismatch", "orphan_sidecar", "selection_expanded", "unfixable"]
           },
           "path": { "type": ["string", "null"] },
           "message": { "type": "string" }
+        }
+      }
+    },
+    "writes": {
+      "type": "array",
+      "description": "Independent write records: one per planned/applied/failed/blocked write. Never joined to file states; a metadata patch covers many files (FR-021).",
+      "items": {
+        "type": "object",
+        "required": ["path", "kind", "status", "affected_files"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "description": "Destination written (the document itself for metadata patches)." },
+          "kind": { "type": "string", "enum": ["source", "sidecar", "reuse_toml", "license_text", "config"] },
+          "status": { "type": "string", "enum": ["planned", "applied", "unchanged", "failed", "blocked"] },
+          "affected_files": { "type": "array", "items": { "type": "string" } },
+          "before_text": { "type": ["string", "null"], "description": "Exact current bytes as text, for text being written." },
+          "after_text": { "type": ["string", "null"], "description": "Exact installed bytes as text; absent when unknown until execution." },
+          "message": { "type": ["string", "null"], "description": "Reason for failed/blocked writes (fetch URL, missing id)." }
         }
       }
     },
@@ -102,7 +147,10 @@
         "present": { "type": "array", "items": { "type": "string" } },
         "missing": { "type": "array", "items": { "type": "string" } },
         "bundled_available": { "type": "array", "items": { "type": "string" } },
-        "spdx_list_version": { "type": "string", "description": "Version of the embedded SPDX license list this binary carries (FR-028)." }
+        "spdx_list_version": { "type": "string", "description": "Version of the embedded SPDX license list this binary carries (FR-028)." },
+        "unused": { "type": "array", "items": { "type": "string" }, "description": "Present but never referenced (project-wide lint finding only)." },
+        "unrecognized": { "type": "array", "items": { "type": "string" }, "description": "LICENSES/ entries naming no recognizable license." },
+        "missing_extension": { "type": "array", "items": { "type": "string" }, "description": "Recognized ids kept in extensionless files." }
       }
     }
   }

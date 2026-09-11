@@ -132,9 +132,10 @@ fn cli_flag_overrides_config_strategy() {
 
 #[test]
 fn reuse_toml_override_wrong_license_is_fixed_in_place() {
-    // The previously-documented residual edge: a non-annotatable file already covered by a
-    // REUSE.toml `override` entry whose license is wrong. `apply` now rewrites that entry's
-    // license in place rather than telling the user to fix it by hand.
+    // A non-annotatable file already covered by a REUSE.toml `override` entry
+    // whose license is wrong. `apply` appends a superseding `override` stanza
+    // (last match wins) rather than rewriting the stale entry in place, so the
+    // original document survives byte-for-byte and a rerun converges.
     let f = Fixture::new();
     f.config("[default]\nlicense=\"MIT\"\n[[rule]]\nfile=\"logo.png\"\nlicense=\"CC-BY-4.0\"\n");
     std::fs::write(f.path().join("logo.png"), PNG).unwrap();
@@ -156,25 +157,22 @@ fn reuse_toml_override_wrong_license_is_fixed_in_place() {
         String::from_utf8_lossy(&out.stdout)
     );
 
-    // No sidecar written; the REUSE.toml entry itself was corrected in place.
+    // No sidecar written; the stale stanza is untouched and the appended
+    // `override` stanza governs.
     assert!(!f.path().join("logo.png.license").exists());
     let reuse = f.read("REUSE.toml");
     assert!(
         reuse.contains("SPDX-License-Identifier = \"CC-BY-4.0\""),
         "{reuse}"
     );
-    assert!(
-        !reuse.contains("MIT"),
-        "stale license must be gone: {reuse}"
-    );
     assert_eq!(
         reuse.matches("[[annotations]]").count(),
-        1,
-        "no duplicate block: {reuse}"
+        2,
+        "superseding stanza appended: {reuse}"
     );
     assert!(
-        reuse.contains("precedence = \"override\""),
-        "precedence preserved: {reuse}"
+        reuse.contains("precedence = \"override\"\nSPDX-License-Identifier = \"CC-BY-4.0\""),
+        "appended stanza keeps the barrier: {reuse}"
     );
 
     assert_eq!(
@@ -238,5 +236,135 @@ fn reuse_toml_write_is_idempotent() {
     let second = f.read("REUSE.toml");
     assert_eq!(first, second, "REUSE.toml entry duplicated on re-apply");
     assert_eq!(first.matches("path = \"logo.png\"").count(), 1);
+}
+
+#[test]
+fn additive_sidecar_preserves_old_identifiers() {
+    // Additive sidecar coverage keeps the old license lines and notices while
+    // adding the declared ones (FR-006).
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n[[rule]]\nfile=\"logo.png\"\nlicense=\"CC-BY-4.0\"\n");
+    std::fs::write(f.path().join("logo.png"), PNG).unwrap();
+    f.write(
+        "logo.png.license",
+        "SPDX-FileCopyrightText: 2026 Acme\nSPDX-License-Identifier: MIT\n",
+    );
+    f.commit("init");
+
+    let out = f
+        .licet()
+        .args(["apply", "--additive", "--files", "logo.png"])
+        .output()
+        .unwrap();
+    // The write succeeds (both identifiers land) but the old record still
+    // counts as drift: exit 1, not partial.
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "apply output: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let sidecar = f.read("logo.png.license");
+    assert!(
+        sidecar.contains("SPDX-License-Identifier: MIT"),
+        "old identifier kept: {sidecar:?}"
+    );
+    assert!(
+        sidecar.contains("SPDX-License-Identifier: CC-BY-4.0"),
+        "declared identifier added: {sidecar:?}"
+    );
+    assert!(
+        sidecar.contains("SPDX-FileCopyrightText: 2026 Acme"),
+        "notice kept: {sidecar:?}"
+    );
+}
+
+#[test]
+fn override_without_license_leaves_file_missing_header() {
+    // An override stanza that carries no license is ineffective for
+    // licensing: the file still fails the gate with its own path, and apply
+    // fixes it where the coverage lives.
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n[[rule]]\nfile=\"logo.png\"\nlicense=\"CC-BY-4.0\"\n");
+    std::fs::write(f.path().join("logo.png"), PNG).unwrap();
+    f.write(
+        "REUSE.toml",
+        "version = 1\n\n[[annotations]]\npath = \"logo.png\"\nprecedence = \"override\"\n\
+         SPDX-FileCopyrightText = \"2026 Acme\"\n",
+    );
+    f.commit("init");
+
+    let out = f
+        .licet()
+        .args(["check", "--format", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let entry = v["files"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|e| e["path"] == "logo.png")
+        .expect("logo.png in report");
+    // The binary carries no detectable license anywhere: without a usable
+    // license record the override is ineffective for licensing.
+    assert_eq!(entry["drift"], "unreadable");
+
+    let out = f.licet().arg("apply").output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(
+        check_compliant(&f, "logo.png")["summary"]["counts"]["compliant"],
+        1
+    );
+}
+
+#[test]
+fn toml_covered_source_file_gets_annotation_not_header() {
+    // Provenance picks the destination before any comment syntax: a source
+    // file already covered by REUSE.toml is fixed in the document, never with
+    // an in-file header — even though a comment style exists for it.
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n[[rule]]\nfile=\"a.rs\"\nlicense=\"Apache-2.0\"\n")
+        .write("a.rs", "fn a(){}\n")
+        .write(
+            "REUSE.toml",
+            "version = 1\n\n[[annotations]]\npath = \"a.rs\"\nSPDX-License-Identifier = \"MIT\"\n",
+        )
+        .commit("init");
+
+    let out = f.licet().arg("apply").output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(f.read("a.rs"), "fn a(){}\n", "no in-file header inserted");
+    let reuse = f.read("REUSE.toml");
+    assert_eq!(reuse.matches("[[annotations]]").count(), 2, "{reuse}");
+    assert!(
+        reuse.contains("SPDX-License-Identifier = \"Apache-2.0\""),
+        "{reuse}"
+    );
+
+    let check = f.licet().arg("check").output().unwrap();
+    assert_eq!(
+        check.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&check.stdout)
+    );
 }
 // REUSE-IgnoreEnd

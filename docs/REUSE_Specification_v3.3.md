@@ -1,3 +1,8 @@
+<!-- SPDX-FileCopyrightText: Free Software Foundation Europe <https://fsfe.org> -->
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+<!-- Attribution: verbatim copy of the REUSE Specification v3.3 (2024-11-14),
+     https://reuse.software/spec-3.3/, used as a development reference only.
+     The REUSE tool's source code (GPL-3.0-or-later) is not included in this project. -->
 <!-- REUSE-IgnoreStart — SPDX tags in this spec are illustrative examples, not licensing of this file. -->
 # REUSE Specification – Version 3.3
 

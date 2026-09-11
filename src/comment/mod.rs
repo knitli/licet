@@ -1,7 +1,8 @@
 //! Comment-style registry: built-in table seeded to the REUSE-known set, overlaid by
 //! user-defined associations from config (FR-010, FR-011).
 //!
-//! Resolution precedence: exact filename → extension → built-in default.
+//! Resolution precedence: config exact path → config filename → config
+//! extension → built-in default.
 
 mod comment_style;
 mod extensions;
@@ -42,7 +43,25 @@ pub fn render_header(syntax: &CommentSyntax, license: &str, copyrights: &[String
 /// (FR-015). Sidecars cover non-annotatable files; the REUSE spec treats their content as
 /// if it were inside the file. Lines are `\n`-terminated.
 pub fn render_sidecar(license: &str, copyrights: &[String]) -> String {
-    let lines = spdx_lines(license, copyrights);
+    render_sidecar_multi(std::slice::from_ref(&license.to_string()), copyrights)
+}
+
+/// Render a `.license` sidecar body covering several licenses (additive, FR-006):
+/// one `SPDX-License-Identifier` line per license — order-stable, deduplicated —
+/// then the copyright lines. Lines are `\n`-terminated.
+pub fn render_sidecar_multi(licenses: &[String], copyrights: &[String]) -> String {
+    // Copyright lines first, then one license line per license (order-stable,
+    // deduplicated) — the same layout as [`render_sidecar`].
+    let mut lines: Vec<String> = Vec::new();
+    for c in copyrights {
+        lines.push(format!("SPDX-FileCopyrightText: {c}"));
+    }
+    for license in licenses {
+        let line = format!("SPDX-License-Identifier: {license}");
+        if !lines.iter().any(|l| l == &line) {
+            lines.push(line);
+        }
+    }
     format!("{}\n", lines.join("\n"))
 }
 
@@ -69,20 +88,33 @@ impl<'a> CommentResolver<'a> {
         }
     }
 
-    /// Resolve the comment syntax for `path` (FR-011 precedence:
-    /// exact filename association → extension association → built-in filename →
-    /// built-in extension).
+    /// Resolve the comment syntax for `path` (FR-011 precedence: config
+    /// exact-path association → config filename association → config extension
+    /// association → built-in filename → built-in extension). Exact paths use
+    /// the same slash-normalized semantics as rule selectors, so `a/foo` never
+    /// governs `b/foo`.
     pub fn resolve(&self, path: &Path) -> Option<CommentSyntax> {
+        let norm = path.to_string_lossy().replace('\\', "/");
         let filename = path.file_name().and_then(|n| n.to_str());
         let ext = path.extension().and_then(|e| e.to_str());
 
-        // 1. Config association by exact filename.
+        // 1. Config association by full normalized exact path.
+        if let Some(style) = self.associations.iter().find_map(|a| match &a.selector {
+            Selector::ExactPath(p) if *p == norm => self.materialize(&a.style),
+            _ => None,
+        }) {
+            return Some(style);
+        }
+        // 2. Config association by filename.
         if let Some(fname) = filename
-            && let Some(style) = self.assoc_for_filename(fname)
+            && let Some(style) = self.associations.iter().find_map(|a| match &a.selector {
+                Selector::Filename(f) if f == fname => self.materialize(&a.style),
+                _ => None,
+            })
         {
             return Some(style);
         }
-        // 2. Config association by extension.
+        // 3. Config association by extension.
         if let Some(e) = ext
             && let Some(style) = self.assoc_for_ext(e)
         {
@@ -101,16 +133,6 @@ impl<'a> CommentResolver<'a> {
             return Some(c.syntax.clone());
         }
         None
-    }
-
-    fn assoc_for_filename(&self, filename: &str) -> Option<CommentSyntax> {
-        self.associations.iter().find_map(|a| match &a.selector {
-            Selector::Filename(f) if f == filename => self.materialize(&a.style),
-            Selector::ExactPath(p) if p.rsplit('/').next() == Some(filename) => {
-                self.materialize(&a.style)
-            }
-            _ => None,
-        })
     }
 
     fn assoc_for_ext(&self, ext: &str) -> Option<CommentSyntax> {
@@ -185,6 +207,47 @@ mod tests {
         let cfg = cfg_with(vec![]);
         let r = CommentResolver::new(&cfg);
         assert!(r.resolve(&PathBuf::from("mystery.zzz")).is_none());
+    }
+
+    #[test]
+    fn exact_path_assoc_is_directory_scoped() {
+        // `a/foo` must never govern `b/foo`: exact paths match the full
+        // normalized path, not the filename.
+        let cfg = cfg_with(vec![
+            CommentStyleAssociation {
+                selector: Selector::ExactPath("a/foo".into()),
+                style: CommentStyleRef::Inline(CommentSyntax::line_only("//")),
+            },
+            CommentStyleAssociation {
+                selector: Selector::ExactPath("b/foo".into()),
+                style: CommentStyleRef::Inline(CommentSyntax::line_only("#")),
+            },
+        ]);
+        let r = CommentResolver::new(&cfg);
+        let a = r.resolve(&PathBuf::from("a/foo")).unwrap();
+        assert_eq!(line_prefix_of(&a), "//");
+        let b = r.resolve(&PathBuf::from("b/foo")).unwrap();
+        assert_eq!(line_prefix_of(&b), "#");
+    }
+
+    #[test]
+    fn exact_path_assoc_beats_filename_assoc() {
+        let cfg = cfg_with(vec![
+            CommentStyleAssociation {
+                selector: Selector::Filename("foo".into()),
+                style: CommentStyleRef::Inline(CommentSyntax::line_only("#")),
+            },
+            CommentStyleAssociation {
+                selector: Selector::ExactPath("a/foo".into()),
+                style: CommentStyleRef::Inline(CommentSyntax::line_only("//")),
+            },
+        ]);
+        let r = CommentResolver::new(&cfg);
+        let s = r.resolve(&PathBuf::from("a/foo")).unwrap();
+        assert_eq!(line_prefix_of(&s), "//");
+        // The filename association still governs elsewhere.
+        let s = r.resolve(&PathBuf::from("b/foo")).unwrap();
+        assert_eq!(line_prefix_of(&s), "#");
     }
 
     /// Invariant: detection must parse a superset of what rendering emits, so every

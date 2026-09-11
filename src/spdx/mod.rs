@@ -37,207 +37,277 @@ pub fn is_known_id(id: &str) -> bool {
 
 /// Validate a full SPDX expression (allowing `LicenseRef-*` and `+`/`WITH`).
 ///
+/// Strict dependency parsing only: sloppy-but-guessable input (`mit`,
+/// `apache2`) is rejected here and diagnosed downstream. Case tolerance lives
+/// in comparison ([`expressions_equal`]), not acceptance.
 /// Returns `Ok(())` for a parseable expression, otherwise an explanatory message.
 pub fn validate_expression(expr: &str) -> Result<(), String> {
-    parse_canonical(expr).map(|_| ())
+    let trimmed = expr.trim();
+    if trimmed.is_empty() {
+        return Err("empty license expression".to_string());
+    }
+    spdx::Expression::parse(trimmed)
+        .map(|_| ())
+        .map_err(|e| format!("invalid SPDX expression `{trimmed}`: {e}"))
 }
 
 /// Parse an expression and render it in a canonical, comparable form.
 ///
 /// Canonical form is equal up to commutativity, associativity, whitespace,
-/// parenthesization, and case of identifiers (FR-005, research §2). Full
-/// distributive equivalence is an explicit non-goal for v1.
+/// parenthesization, and case of identifiers (FR-005). Full distributive
+/// equivalence is an explicit non-goal for v1.
 pub fn parse_canonical(expr: &str) -> Result<String, String> {
     let trimmed = expr.trim();
     if trimmed.is_empty() {
         return Err("empty license expression".to_string());
     }
-
-    // `spdx::Expression` accepts LicenseRef-* and compound expressions, and validates
-    // identifiers against the bundled SPDX list.
-    let parsed = spdx::Expression::parse(trimmed)
-        .map_err(|e| format!("invalid SPDX expression `{trimmed}`: {e}"))?;
-
-    Ok(canonicalize(&parsed))
+    parse_expression_ast(trimmed)
+        .map(|parts| parts.join(" "))
+        .ok_or_else(|| format!("invalid SPDX expression `{trimmed}`"))
 }
 
-/// Semantic equality of two SPDX expressions via canonical form (FR-005).
-pub fn expressions_equal(a: &str, b: &str) -> bool {
-    match (parse_canonical(a), parse_canonical(b)) {
-        (Ok(ca), Ok(cb)) => ca == cb,
-        // Fall back to case-insensitive string compare for unparseable inputs so two
-        // identical raw strings still compare equal.
-        _ => a.trim().eq_ignore_ascii_case(b.trim()),
+/// Every license/exception identifier an expression references, in first-seen
+/// order: parsed from the dependency AST via requirement spans (so tabs,
+/// newlines, and casing variants split correctly), falling back to
+/// whitespace splitting for invalid expressions.
+pub fn expression_ids(expr: &str) -> Vec<String> {
+    if let Ok(parsed) = ::spdx::Expression::parse(expr) {
+        return ids_from_spans(expr, &parsed);
     }
-}
-
-/// Render an `spdx::Expression` into a canonical string, flattening associative AND/OR
-/// nestings and sorting commutative operands so equivalent expressions render identically.
-fn canonicalize(expr: &spdx::Expression) -> String {
-    normalize_boolean(expr.as_ref())
-}
-
-/// Boolean AST used purely for canonicalization (associativity + commutativity).
-enum Node {
-    Or(Vec<Node>),
-    And(Vec<Node>),
-    Leaf(String),
-}
-
-/// Normalize a (possibly parenthesized) AND/OR expression string into canonical form.
-fn normalize_boolean(s: &str) -> String {
-    render(&parse_node(s))
-}
-
-fn parse_node(s: &str) -> Node {
-    let s = strip_outer_parens(s.trim());
-    let ors = split_top_level(s, "OR");
-    if ors.len() > 1 {
-        return Node::Or(ors.iter().map(|x| parse_node(x)).collect());
+    let folded = casefold_known_ids(expr);
+    if folded != expr
+        && let Ok(parsed) = ::spdx::Expression::parse(&folded)
+    {
+        return ids_from_spans(&folded, &parsed);
     }
-    let ands = split_top_level(s, "AND");
-    if ands.len() > 1 {
-        return Node::And(ands.iter().map(|x| parse_node(x)).collect());
-    }
-    Node::Leaf(normalize_leaf(s))
+    fallback_split_ids(expr)
 }
 
-/// Flatten same-operator children into a single operand list.
-fn flatten<'a>(node: &'a Node, want_or: bool, out: &mut Vec<&'a Node>) {
-    match node {
-        Node::Or(children) if want_or => children.iter().for_each(|c| flatten(c, true, out)),
-        Node::And(children) if !want_or => children.iter().for_each(|c| flatten(c, false, out)),
-        other => out.push(other),
-    }
-}
-
-fn render(node: &Node) -> String {
-    match node {
-        Node::Leaf(s) => s.clone(),
-        Node::Or(_) => {
-            let mut operands = Vec::new();
-            flatten(node, true, &mut operands);
-            // OR is lowest precedence; AND children need no parens, leaves none.
-            let mut parts: Vec<String> = operands.iter().map(|c| render(c)).collect();
-            parts.sort();
-            parts.dedup();
-            parts.join(" OR ")
+/// Read identifiers out of a parsed expression: each requirement span names
+/// the license exactly as written (`MIT`, `GPL-2.0+`, `LicenseRef-X`), while
+/// a `WITH` exception travels in the requirement's `addition` (the iterator
+/// does not yield it separately, so spans alone would drop it).
+fn ids_from_spans(source: &str, parsed: &::spdx::Expression) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut push = |id: &str| {
+        let id = id.trim().trim_end_matches('+');
+        if !id.is_empty() && !ids.contains(&id.to_string()) {
+            ids.push(id.to_string());
         }
-        Node::And(_) => {
-            let mut operands = Vec::new();
-            flatten(node, false, &mut operands);
-            // AND binds tighter than OR; wrap any OR child in parens.
-            let mut parts: Vec<String> = operands
-                .iter()
-                .map(|c| match c {
-                    Node::Or(_) => format!("({})", render(c)),
-                    _ => render(c),
-                })
-                .collect();
-            parts.sort();
-            parts.dedup();
-            parts.join(" AND ")
+    };
+    for req in parsed.requirements() {
+        let text = &source[req.span.start as usize..req.span.end as usize];
+        push(text);
+        if let Some(addition) = &req.req.addition {
+            push(&addition.to_string());
         }
     }
+    ids
 }
 
-/// Split a string on a top-level (non-parenthesized) ` OP ` boundary.
-fn split_top_level(s: &str, op: &str) -> Vec<String> {
-    let s = strip_outer_parens(s.trim());
-    let bytes = s.as_bytes();
-    let mut depth = 0i32;
-    let mut parts = Vec::new();
-    let mut start = 0usize;
-    let needle = format!(" {op} ");
-    let mut i = 0usize;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'(' => depth += 1,
-            b')' => depth -= 1,
-            _ => {}
-        }
-        if depth == 0 && s[i..].to_ascii_uppercase().starts_with(&needle) {
-            parts.push(s[start..i].to_string());
-            i += needle.len();
-            start = i;
+/// Best-effort identifier split for expressions that do not parse.
+fn fallback_split_ids(expr: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    for token in expr.split(|c: char| c.is_whitespace() || c == '(' || c == ')') {
+        let id = token.trim().trim_end_matches('+');
+        if id.is_empty()
+            || id.eq_ignore_ascii_case("or")
+            || id.eq_ignore_ascii_case("and")
+            || id.eq_ignore_ascii_case("with")
+        {
             continue;
         }
-        i += 1;
+        if !ids.contains(&id.to_string()) {
+            ids.push(id.to_string());
+        }
     }
-    parts.push(s[start..].to_string());
-    parts
+    ids
 }
 
-/// Remove one layer of fully-enclosing parentheses, if present.
-fn strip_outer_parens(s: &str) -> &str {
-    let t = s.trim();
-    if t.starts_with('(') && t.ends_with(')') {
-        // Verify the first `(` matches the last `)`.
-        let inner = &t[1..t.len() - 1];
-        let mut depth = 0i32;
-        for (idx, c) in inner.char_indices() {
-            match c {
-                '(' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if depth < 0 {
-                        return t; // unbalanced — keep as-is
+/// Semantic equality of two SPDX expressions via canonical form (FR-005, F12).
+pub fn expressions_equal(a: &str, b: &str) -> bool {
+    match (parse_expression_ast(a), parse_expression_ast(b)) {
+        (Some(x), Some(y)) => x == y,
+        // Preserve raw-string behavior for values the parser rejects: equal only
+        // when byte-identical after trimming (callers only invoke this on
+        // validated expressions, so this is unreachable in practice).
+        _ => a.trim() == b.trim(),
+    }
+}
+
+/// Parse an expression into canonical sorted-operand form through the dependency
+/// AST ([`spdx::Expression::iter`], postfix `Req`/`Op` nodes), so `MIT OR
+/// Apache-2.0` and `(Apache-2.0 OR MIT)` compare equal (FR-005, F12). The postfix
+/// nodes rebuild a tree on a stack, so grouping comes from the parser — `AND`
+/// binds tighter than `OR`, `WITH` binds tightest, and `AND`/`OR`/`WITH` are
+/// never confused by string surgery.
+///
+/// Strict parsing first; on failure a whole-token case-fold retry supplies the
+/// promised standard-id case tolerance (`mit` → `MIT`, `apache-2.0` →
+/// `Apache-2.0`) without the dependency's lax prefix/slash/deprecated
+/// guessing. Anything still unparseable is `None` and the callers preserve
+/// exact-string behavior for it.
+fn parse_expression_ast(expression: &str) -> Option<Vec<String>> {
+    parse_ast_strict(expression).or_else(|| parse_ast_strict(&casefold_known_ids(expression)))
+}
+
+/// Lowercase → canonical spelling for every known license/exception id,
+/// built once from the dependency's own tables.
+fn canonical_id_map() -> &'static std::collections::HashMap<String, &'static str> {
+    static MAP: std::sync::OnceLock<std::collections::HashMap<String, &'static str>> =
+        std::sync::OnceLock::new();
+    MAP.get_or_init(|| {
+        let mut map = std::collections::HashMap::new();
+        for lic in spdx::identifiers::LICENSES {
+            map.entry(lic.name.to_ascii_lowercase()).or_insert(lic.name);
+        }
+        for exc in spdx::identifiers::EXCEPTIONS {
+            map.entry(exc.name.to_ascii_lowercase()).or_insert(exc.name);
+        }
+        map
+    })
+}
+
+/// True for characters inside an SPDX id token. Operators, parens, `+`, and
+/// whitespace split tokens; `/` stays inside so slash-expressions reach the
+/// strict parser verbatim (and stay rejected there).
+fn is_id_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '/')
+}
+
+/// Rewrite whole-token known ids to canonical spelling (`apache-2.0` →
+/// `Apache-2.0`). Only exact (modulo case) full-token hits change, so prose,
+/// operators, `LicenseRef-*`, and sloppy prefixes (`apache2`) pass through
+/// untouched for the strict parser to judge.
+fn casefold_known_ids(expression: &str) -> String {
+    let map = canonical_id_map();
+    let mut out = String::with_capacity(expression.len());
+    let mut token = String::new();
+    for c in expression.chars() {
+        if is_id_char(c) {
+            token.push(c);
+            continue;
+        }
+        flush_token(&mut token, &mut out, map);
+        out.push(c);
+    }
+    flush_token(&mut token, &mut out, map);
+    out
+}
+
+fn flush_token(
+    token: &mut String,
+    out: &mut String,
+    map: &std::collections::HashMap<String, &'static str>,
+) {
+    if token.is_empty() {
+        return;
+    }
+    match map.get(&token.to_ascii_lowercase()) {
+        Some(canonical) => out.push_str(canonical),
+        None => out.push_str(token),
+    }
+    token.clear();
+}
+
+/// Strict-parse one expression string into canonical sorted-operand form.
+fn parse_ast_strict(expression: &str) -> Option<Vec<String>> {
+    let parsed = spdx::Expression::parse(expression).ok()?;
+    // Rebuild the tree from postfix nodes; same-operator runs flatten so
+    // associativity (`A AND (B AND C)` ≡ `(A AND B) AND C`) holds structurally.
+    #[derive(Debug)]
+    enum Ast {
+        Req(String),
+        And(Vec<Ast>),
+        Or(Vec<Ast>),
+    }
+    fn push_op(stack: &mut Vec<Ast>, is_or: bool) {
+        let right = stack.pop();
+        let left = stack.pop();
+        match (left, right) {
+            (Some(l), Some(r)) => {
+                let mut children = Vec::with_capacity(2);
+                for child in [l, r] {
+                    match (is_or, child) {
+                        (true, Ast::Or(nested)) | (false, Ast::And(nested)) => {
+                            children.extend(nested);
+                        }
+                        (_, other) => children.push(other),
                     }
                 }
-                _ => {}
+                stack.push(if is_or {
+                    Ast::Or(children)
+                } else {
+                    Ast::And(children)
+                });
             }
-            let _ = idx;
+            // Unbalanced input cannot come from the parser; keep the survivor.
+            (Some(l), None) => stack.push(l),
+            (None, Some(r)) => stack.push(r),
+            (None, None) => {}
         }
-        if depth == 0 {
-            return inner.trim();
+    }
+    let mut stack: Vec<Ast> = Vec::new();
+    for node in parsed.iter() {
+        match node {
+            spdx::expression::ExprNode::Req(req) => {
+                stack.push(Ast::Req(requirement_text(&req.req)));
+            }
+            spdx::expression::ExprNode::Op(spdx::expression::Operator::Or) => {
+                push_op(&mut stack, true);
+            }
+            spdx::expression::ExprNode::Op(spdx::expression::Operator::And) => {
+                push_op(&mut stack, false);
+            }
         }
     }
-    t
+    if stack.len() != 1 {
+        return None;
+    }
+    fn render(node: &Ast, out: &mut Vec<String>) {
+        match node {
+            Ast::Req(text) => out.push(text.clone()),
+            Ast::Or(children) => {
+                let mut parts: Vec<String> = children
+                    .iter()
+                    .map(|c| {
+                        let mut sub = Vec::new();
+                        render(c, &mut sub);
+                        sub.join(" ")
+                    })
+                    .collect();
+                parts.sort();
+                out.extend(parts);
+                out.push("OR".to_string());
+            }
+            Ast::And(children) => {
+                let mut parts: Vec<String> = children
+                    .iter()
+                    .map(|c| {
+                        let mut sub = Vec::new();
+                        render(c, &mut sub);
+                        sub.join(" ")
+                    })
+                    .collect();
+                parts.sort();
+                out.extend(parts);
+                out.push("AND".to_string());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    render(&stack[0], &mut out);
+    Some(out)
 }
 
-/// Normalize a single leaf token: trim, recurse into parens, canonicalize id case and `+`,
-/// and preserve `WITH` exceptions.
-fn normalize_leaf(s: &str) -> String {
-    let t = strip_outer_parens(s.trim());
-    if t.is_empty() {
-        return String::new();
+/// Canonical text of one license requirement: canonical id spelling plus any
+/// `WITH` exception. `LicenseRef-*` values round-trip through the same parser.
+fn requirement_text(req: &spdx::LicenseReq) -> String {
+    let mut s = req.license.to_string();
+    if let Some(addition) = &req.addition {
+        s.push_str(&format!(" WITH {addition}"));
     }
-    // Recurse if the leaf still contains top-level operators (was parenthesized).
-    if split_top_level(t, "OR").len() > 1 || split_top_level(t, "AND").len() > 1 {
-        return format!("({})", normalize_boolean(t));
-    }
-    // Handle `ID WITH Exception`.
-    if let Some((lic, exc)) = split_with(t) {
-        return format!("{} WITH {}", canon_id(&lic), exc.trim());
-    }
-    canon_id(t)
-}
-
-/// Split `A WITH B` at the top level, if present.
-fn split_with(s: &str) -> Option<(String, String)> {
-    let parts = split_top_level(s, "WITH");
-    if parts.len() == 2 {
-        Some((parts[0].clone(), parts[1].clone()))
-    } else {
-        None
-    }
-}
-
-/// Canonicalize a bare license identifier: map to the official SPDX casing when known,
-/// preserve a trailing `+`, and keep `LicenseRef-*` verbatim.
-fn canon_id(id: &str) -> String {
-    let id = id.trim();
-    let (base, plus) = match id.strip_suffix('+') {
-        Some(b) => (b, "+"),
-        None => (id, ""),
-    };
-    if is_license_ref(base) {
-        return format!("{base}{plus}");
-    }
-    match spdx::license_id(base) {
-        Some(found) => format!("{}{plus}", found.name),
-        None => format!("{base}{plus}"),
-    }
+    s
 }
 
 #[cfg(test)]
@@ -247,6 +317,30 @@ mod tests {
     #[test]
     fn commutative_or_is_equal() {
         assert!(expressions_equal("MIT OR Apache-2.0", "Apache-2.0 OR MIT"));
+    }
+
+    #[test]
+    fn with_exception_yields_both_ids() {
+        assert_eq!(
+            expression_ids("GPL-2.0-only WITH Classpath-exception-2.0"),
+            vec![
+                "GPL-2.0-only".to_string(),
+                "Classpath-exception-2.0".to_string()
+            ]
+        );
+        assert_eq!(
+            expression_ids("MIT\tor\tApache-2.0"),
+            vec!["MIT".to_string(), "Apache-2.0".to_string()]
+        );
+    }
+
+    #[test]
+    fn commutative_and_is_equal() {
+        // Policy AND-combinations compare order-insensitively.
+        assert!(expressions_equal(
+            "MIT AND Apache-2.0",
+            "Apache-2.0 AND MIT"
+        ));
     }
 
     #[test]
@@ -298,5 +392,70 @@ mod tests {
     #[test]
     fn invalid_expression_rejected() {
         assert!(validate_expression("Not A Real License").is_err());
+    }
+
+    #[test]
+    fn compound_parens_both_orders() {
+        assert!(expressions_equal(
+            "MIT AND (Apache-2.0 OR ISC)",
+            "(ISC OR Apache-2.0) AND MIT"
+        ));
+        assert!(expressions_equal(
+            "(MIT OR Apache-2.0)",
+            "Apache-2.0 OR (MIT)"
+        ));
+    }
+
+    #[test]
+    fn operators_never_confused() {
+        assert!(!expressions_equal(
+            "MIT OR Apache-2.0",
+            "MIT AND Apache-2.0"
+        ));
+        // Precedence is structural: `A AND B OR C` is `(A AND B) OR C`.
+        assert!(expressions_equal(
+            "MIT AND Apache-2.0 OR ISC",
+            "(MIT AND Apache-2.0) OR ISC"
+        ));
+        assert!(!expressions_equal(
+            "MIT AND Apache-2.0 OR ISC",
+            "MIT AND (Apache-2.0 OR ISC)"
+        ));
+    }
+
+    #[test]
+    fn tab_newline_separators() {
+        assert!(expressions_equal(
+            "MIT\tOR\nApache-2.0",
+            "MIT OR Apache-2.0"
+        ));
+    }
+
+    #[test]
+    fn mixed_case_ids_equal() {
+        assert!(expressions_equal("MIT or apache-2.0", "Apache-2.0 OR MIT"));
+        assert!(expressions_equal(
+            "mit and apache-2.0",
+            "Apache-2.0 AND MIT"
+        ));
+        assert!(expressions_equal(
+            "MIT WITH Classpath-exception-2.0",
+            "mit with classpath-exception-2.0"
+        ));
+    }
+
+    #[test]
+    fn licenseref_compound_sorts() {
+        assert!(expressions_equal(
+            "LicenseRef-Acme-1.0 OR MIT",
+            "MIT OR LicenseRef-Acme-1.0"
+        ));
+    }
+
+    #[test]
+    fn unparseable_falls_back_to_exact() {
+        assert!(expressions_equal("Not A License", "Not A License"));
+        assert!(!expressions_equal("Not A License", "not a license"));
+        assert!(!expressions_equal("MIT", "Not A License"));
     }
 }

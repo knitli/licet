@@ -22,6 +22,22 @@ impl ExitCode {
     }
 }
 
+/// Derive the single truthful `apply` outcome from one observation triple.
+/// The same logic drives the summary and the process exit (FR-021): a run
+/// that changed files but hit an operational failure is [`ExitCode::Partial`];
+/// any operational failure *or* remaining violation without changes is
+/// [`ExitCode::Violations`]; only a clean, complete run is
+/// [`ExitCode::Success`]. In particular, writes that all succeed but leave
+/// declaration drift (additive contradictions, unfixable entries) are exit 1,
+/// not partial — partial means the tool itself failed partway.
+pub fn apply_exit(changed: usize, operational_failure: bool, violations: bool) -> ExitCode {
+    match (changed > 0, operational_failure, violations) {
+        (true, true, _) => ExitCode::Partial,
+        (_, true, _) | (_, false, true) => ExitCode::Violations,
+        (_, false, false) => ExitCode::Success,
+    }
+}
+
 /// Library-level errors. The binary wraps these with `anyhow` and maps to [`ExitCode`].
 #[derive(Debug, Error)]
 pub enum LicetError {
@@ -36,6 +52,17 @@ pub enum LicetError {
     /// Git/repository discovery failure.
     #[error("git error: {0}")]
     Git(String),
+
+    /// Contained filesystem write failure.
+    #[error("{0}")]
+    Write(#[from] crate::reuse::atomic::WriteError),
+
+    /// License-text materialization failure (invalid ids → exit 2 via [`ExitCode`]).
+    #[error("{0}")]
+    Materialize(#[from] crate::reuse::inventory::MaterializeError),
+    /// License-text inventory failure (duplicate ids, snapshot gaps → exit 2).
+    #[error("{0}")]
+    Inventory(#[from] crate::reuse::inventory::InventoryError),
 
     /// Internal invariant violation.
     #[error("{0}")]
