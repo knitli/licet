@@ -60,7 +60,12 @@ fn long_licenseref_scales_without_quadratic_blowup() {
             .output()
             .unwrap();
         // Completes (wrong license, missing custom text) rather than hanging.
-        assert_eq!(out.status.code(), Some(1));
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "licet stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         t0.elapsed().as_secs_f64()
     }
 
