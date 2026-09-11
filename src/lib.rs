@@ -16,6 +16,7 @@ pub mod report;
 pub mod reuse;
 pub mod rules;
 pub mod spdx;
+pub mod tool;
 pub mod walk;
 
 pub use error::{ExitCode, LicetError, Result};

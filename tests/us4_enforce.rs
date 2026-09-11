@@ -966,6 +966,20 @@ fn init_refuses_default_when_legacy_config_present() {
 }
 
 #[test]
+fn unresolvable_git_is_usage_error_naming_path() {
+    // Helpers resolve via PATH without the working directory (crate::tool):
+    // with no git on PATH the failure names the lookup, exit 2.
+    let f = Fixture::new();
+    f.config("[default]\nlicense=\"MIT\"\n")
+        .write("a.rs", "// SPDX-License-Identifier: MIT\nfn a(){}\n")
+        .commit("init");
+    let out = f.licet().env("PATH", "").arg("check").output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("PATH"), "names PATH lookup: {stderr}");
+}
+
+#[test]
 fn broken_stdout_pipe_exits_quietly() {
     use std::io::Read;
     use std::process::Stdio;

@@ -17,10 +17,17 @@ use std::path::{Path, PathBuf};
 use crate::domain::ContentSource;
 use crate::error::{LicetError, Result};
 
+/// Resolve the system `git` binary without consulting the working directory
+/// ([`crate::tool`]): every subprocess below runs with the evaluated
+/// repository as its CWD, which must never supply the executable itself.
+fn git_binary() -> Result<PathBuf> {
+    crate::tool::resolve("git").map_err(|e| LicetError::Git(e.to_string()))
+}
+
 /// Run a checked `git` command in `root`; return raw stdout. Failures retain
 /// stderr context. Arguments are passed as an argv array — never shell text.
 pub fn git_output(root: &Path, args: &[&OsStr]) -> Result<Vec<u8>> {
-    let output = std::process::Command::new("git")
+    let output = std::process::Command::new(git_binary()?)
         .arg("-C")
         .arg(root)
         .args(args)
@@ -66,7 +73,7 @@ pub enum RepoDisposition {
 /// Discover the repository disposition of `start`, distinguishing "not a
 /// repository" from Git being missing or failing (F13).
 pub fn discover_repo(start: &Path) -> Result<RepoDisposition> {
-    let output = std::process::Command::new("git")
+    let output = std::process::Command::new(git_binary()?)
         .arg("-C")
         .arg(start)
         .args(["rev-parse", "--show-toplevel", "--absolute-git-dir"])
@@ -267,7 +274,7 @@ impl IndexSnapshot {
             request.extend_from_slice(oid.as_bytes());
             request.push(b'\n');
         }
-        let mut child = std::process::Command::new("git")
+        let mut child = std::process::Command::new(git_binary()?)
             .arg("-C")
             .arg(root)
             .args(["cat-file", "--batch"])

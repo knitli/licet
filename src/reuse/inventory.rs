@@ -560,7 +560,16 @@ pub fn fetch_text_via_curl(id: &str) -> Result<Vec<u8>, FetchError> {
     let url = download_url(id);
     let tmp = tempfile::tempdir().map_err(FetchError::Launch)?;
     let out_path = tmp.path().join("license.txt");
-    let output = std::process::Command::new("curl")
+    // Resolve without consulting the working directory ([`crate::tool`]): the
+    // download runs for the repository under evaluation, which must never
+    // supply the executable itself.
+    let curl = crate::tool::resolve("curl").map_err(|e| {
+        FetchError::Launch(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            e.to_string(),
+        ))
+    })?;
+    let output = std::process::Command::new(curl)
         .arg("--disable")
         .arg("--fail")
         .arg("--silent")
