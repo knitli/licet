@@ -134,82 +134,13 @@ impl OutOfBand {
         Ok(())
     }
     /// Debian dep5 (`.reuse/dep5`) parser: `Files:`/`Copyright:`/`License:`
-    /// paragraphs (field names ASCII-case-insensitive) with continuation-line
-    /// unfolding — a line starting with whitespace continues the current
-    /// field, and a lone `.` is a blank. Unknown fields are preserved-ignored
+    /// paragraphs with continuation-line unfolding (see
+    /// [`unfold_dep5_paragraphs`]). Unknown fields are preserved-ignored
     /// without being interpreted. An invalid `License:` expression fails like
     /// any other malformed metadata.
     pub(crate) fn parse_dep5(&mut self, text: &str) -> crate::error::Result<()> {
         use crate::error::LicetError;
-        #[derive(Default)]
-        struct Para {
-            files: String,
-            copyright: Vec<String>,
-            license: String,
-            field: Option<Dep5Field>,
-        }
-        #[derive(Clone, Copy, PartialEq, Eq)]
-        enum Dep5Field {
-            Files,
-            Copyright,
-            License,
-            Other,
-        }
-        let mut paras: Vec<Para> = vec![Para::default()];
-        for line in text.lines() {
-            if line.trim().is_empty() {
-                paras.push(Para::default());
-                continue;
-            }
-            let para = paras.last_mut().expect("paragraphs never empty");
-            if line.starts_with(' ') || line.starts_with('\t') {
-                // Continuation of the current field (a lone `.` is blank).
-                let cont = line.trim();
-                if cont.is_empty() || cont == "." {
-                    continue;
-                }
-                match para.field {
-                    Some(Dep5Field::Files) => {
-                        para.files.push(' ');
-                        para.files.push_str(cont);
-                    }
-                    Some(Dep5Field::Copyright) => para.copyright.push(cont.to_string()),
-                    Some(Dep5Field::License) => {
-                        para.license.push(' ');
-                        para.license.push_str(cont);
-                    }
-                    Some(Dep5Field::Other) | None => {}
-                }
-                continue;
-            }
-            if cont_is_dot_only(line) {
-                continue;
-            }
-            let (name, value) = match line.split_once(':') {
-                Some((n, v)) => (n.trim(), v.trim()),
-                None => continue,
-            };
-            if name.eq_ignore_ascii_case("Files") {
-                para.field = Some(Dep5Field::Files);
-                if !para.files.is_empty() {
-                    para.files.push(' ');
-                }
-                para.files.push_str(value);
-            } else if name.eq_ignore_ascii_case("Copyright") {
-                para.field = Some(Dep5Field::Copyright);
-                if !value.is_empty() {
-                    para.copyright.push(value.to_string());
-                }
-            } else if name.eq_ignore_ascii_case("License") {
-                para.field = Some(Dep5Field::License);
-                if !para.license.is_empty() {
-                    para.license.push(' ');
-                }
-                para.license.push_str(value);
-            } else {
-                para.field = Some(Dep5Field::Other);
-            }
-        }
+        let paras = unfold_dep5_paragraphs(text);
         for (index, para) in paras.into_iter().enumerate() {
             if para.files.trim().is_empty() {
                 continue;
@@ -238,6 +169,89 @@ impl OutOfBand {
         }
         Ok(())
     }
+}
+
+/// One unfolded dep5 paragraph: raw field text before license validation
+/// and pattern compilation.
+#[derive(Default)]
+pub(crate) struct Dep5ParaRaw {
+    pub(crate) files: String,
+    pub(crate) copyright: Vec<String>,
+    pub(crate) license: String,
+    /// Current field for continuation lines; transient unfold state.
+    field: Option<Dep5Field>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Dep5Field {
+    Files,
+    Copyright,
+    License,
+    Other,
+}
+
+/// Unfold a dep5 document into raw paragraphs: field names are
+/// ASCII-case-insensitive, a line starting with whitespace continues the
+/// current field, a lone `.` is a blank, and unknown fields are
+/// preserved-ignored without being interpreted. Pure line processing, so
+/// continuation edge cases are directly unit-testable.
+pub(crate) fn unfold_dep5_paragraphs(text: &str) -> Vec<Dep5ParaRaw> {
+    let mut paras: Vec<Dep5ParaRaw> = vec![Dep5ParaRaw::default()];
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            paras.push(Dep5ParaRaw::default());
+            continue;
+        }
+        let para = paras.last_mut().expect("paragraphs never empty");
+        if line.starts_with(' ') || line.starts_with('\t') {
+            // Continuation of the current field (a lone `.` is blank).
+            let cont = line.trim();
+            if cont.is_empty() || cont == "." {
+                continue;
+            }
+            match para.field {
+                Some(Dep5Field::Files) => {
+                    para.files.push(' ');
+                    para.files.push_str(cont);
+                }
+                Some(Dep5Field::Copyright) => para.copyright.push(cont.to_string()),
+                Some(Dep5Field::License) => {
+                    para.license.push(' ');
+                    para.license.push_str(cont);
+                }
+                Some(Dep5Field::Other) | None => {}
+            }
+            continue;
+        }
+        if cont_is_dot_only(line) {
+            continue;
+        }
+        let (name, value) = match line.split_once(':') {
+            Some((n, v)) => (n.trim(), v.trim()),
+            None => continue,
+        };
+        if name.eq_ignore_ascii_case("Files") {
+            para.field = Some(Dep5Field::Files);
+            if !para.files.is_empty() {
+                para.files.push(' ');
+            }
+            para.files.push_str(value);
+        } else if name.eq_ignore_ascii_case("Copyright") {
+            para.field = Some(Dep5Field::Copyright);
+            if !value.is_empty() {
+                para.copyright.push(value.to_string());
+            }
+        } else if name.eq_ignore_ascii_case("License") {
+            para.field = Some(Dep5Field::License);
+            if !para.license.is_empty() {
+                para.license.push(' ');
+            }
+            para.license.push_str(value);
+        } else {
+            para.field = Some(Dep5Field::Other);
+        }
+    }
+    paras
 }
 
 /// A lone `.` line outside a field continuation is blank padding, not content.

@@ -251,46 +251,10 @@ pub fn write_annotations(
         } else if !out.ends_with('\n') {
             out.push_str(nl);
         }
-        for (i, dest) in jobs {
-            let req = &requests[*i];
-            out.push_str("[[annotations]]");
-            out.push_str(nl);
-            out.push_str(&format!(
-                "path = {}",
-                toml_string(&escape_reuse_path(&dest.base_path))
-            ));
-            out.push_str(nl);
-            if dest.use_override {
-                out.push_str("precedence = \"override\"");
-                out.push_str(nl);
-            }
-            match req.copyrights.len() {
-                0 => {}
-                1 => {
-                    out.push_str(&format!(
-                        "SPDX-FileCopyrightText = {}",
-                        toml_string(&req.copyrights[0])
-                    ));
-                    out.push_str(nl);
-                }
-                _ => {
-                    let list = req
-                        .copyrights
-                        .iter()
-                        .map(|s| toml_string(s))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    out.push_str(&format!("SPDX-FileCopyrightText = [{list}]"));
-                    out.push_str(nl);
-                }
-            }
-            out.push_str(&format!(
-                "SPDX-License-Identifier = {}",
-                toml_string(req.license)
-            ));
-            out.push_str(nl);
-            out.push_str(nl);
-            per_request[*i] = AnnotationWrite::Appended;
+        let (stanzas, appended) = render_stanzas(jobs, requests, nl);
+        out.push_str(&stanzas);
+        for i in appended {
+            per_request[i] = AnnotationWrite::Appended;
         }
 
         // Re-parse the complete proposed document before committing, and
@@ -336,6 +300,63 @@ pub fn write_annotations(
         per_request,
         patches,
     })
+}
+
+/// Serialize one document's appended stanzas: exact paths with REUSE glob
+/// metacharacters escaped, copyrights as absent/single/list fields, and the
+/// document's own newline convention. Pure rendering — returns the stanza
+/// text plus the covered request indices (callers mark them `Appended` only
+/// once the whole document verifies), so TOML shape and escaping are
+/// directly unit-testable.
+pub(crate) fn render_stanzas(
+    jobs: &[(usize, AnnotationDestination)],
+    requests: &[AnnotationRequest<'_>],
+    nl: &str,
+) -> (String, Vec<usize>) {
+    let mut out = String::new();
+    let mut appended = Vec::with_capacity(jobs.len());
+    for (i, dest) in jobs {
+        let req = &requests[*i];
+        out.push_str("[[annotations]]");
+        out.push_str(nl);
+        out.push_str(&format!(
+            "path = {}",
+            toml_string(&escape_reuse_path(&dest.base_path))
+        ));
+        out.push_str(nl);
+        if dest.use_override {
+            out.push_str("precedence = \"override\"");
+            out.push_str(nl);
+        }
+        match req.copyrights.len() {
+            0 => {}
+            1 => {
+                out.push_str(&format!(
+                    "SPDX-FileCopyrightText = {}",
+                    toml_string(&req.copyrights[0])
+                ));
+                out.push_str(nl);
+            }
+            _ => {
+                let list = req
+                    .copyrights
+                    .iter()
+                    .map(|s| toml_string(s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push_str(&format!("SPDX-FileCopyrightText = [{list}]"));
+                out.push_str(nl);
+            }
+        }
+        out.push_str(&format!(
+            "SPDX-License-Identifier = {}",
+            toml_string(req.license)
+        ));
+        out.push_str(nl);
+        out.push_str(nl);
+        appended.push(*i);
+    }
+    (out, appended)
 }
 
 /// Effective OOB copyrights for a lookup entry, mirroring the license logic:

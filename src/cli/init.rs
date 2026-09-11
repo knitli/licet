@@ -225,48 +225,7 @@ struct GeneratedConfig {
 /// Exact-path rules first; compress to extension rules only for provably
 /// uniform groups; default only when every covered file is known.
 fn generate(observations: &[Observation]) -> Result<GeneratedConfig> {
-    // Extension groups: lowercase ext -> (emitted spelling, licenses, paths).
-    let mut ext_groups: BTreeMap<String, (String, Vec<String>)> = BTreeMap::new();
-    let mut ext_of_unknown: std::collections::BTreeSet<String> = Default::default();
-    for o in observations {
-        let Some(ext) = o.path.extension().and_then(|e| e.to_str()) else {
-            continue;
-        };
-        let key = ext.to_ascii_lowercase();
-        match &o.license {
-            Some(lic) => {
-                ext_groups
-                    .entry(key)
-                    .or_insert_with(|| (ext.to_string(), Vec::new()))
-                    .1
-                    .push(lic.clone());
-            }
-            None => {
-                ext_of_unknown.insert(key);
-            }
-        }
-    }
-
-    // An ext group compresses only when every observed path it would match
-    // carries the same license — i.e. no unknown file shares the extension
-    // and all known ones agree.
-    let mut rules: Vec<GeneratedRule> = Vec::new();
-    let mut ext_rule_for: std::collections::BTreeSet<String> = Default::default();
-    for (key, (spelling, licenses)) in &ext_groups {
-        if ext_of_unknown.contains(key) {
-            continue;
-        }
-        let mut iter = licenses.iter();
-        let first = iter.next().expect("group is nonempty");
-        if iter.all(|l| crate::spdx::expressions_equal(l, first)) {
-            rules.push(GeneratedRule {
-                ext: Some(spelling.clone()),
-                file: None,
-                license: first.clone(),
-            });
-            ext_rule_for.insert(key.clone());
-        }
-    }
+    let (mut rules, ext_rule_for) = compressed_ext_rules(observations);
     // …exact rules for everything they do not cover.
     for o in observations {
         let Some(lic) = &o.license else { continue };
@@ -327,6 +286,56 @@ fn generate(observations: &[Observation]) -> Result<GeneratedConfig> {
 /// exact already; a root-level file is emitted as `./name` so the loader pins
 /// it as an [`ExactPath`](crate::domain::Selector::ExactPath) instead of a
 /// directory-spanning filename match.
+/// Compress uniform extension groups into ext rules: lowercase ext hands
+/// back the emitted rules plus the set of extensions they cover (exact
+/// rules skip those). An ext group compresses only when every observed path
+/// it would match carries the same license — i.e. no unknown file shares
+/// the extension and all known ones agree.
+fn compressed_ext_rules(
+    observations: &[Observation],
+) -> (Vec<GeneratedRule>, std::collections::BTreeSet<String>) {
+    // Extension groups: lowercase ext -> (emitted spelling, licenses, paths).
+    let mut ext_groups: BTreeMap<String, (String, Vec<String>)> = BTreeMap::new();
+    let mut ext_of_unknown: std::collections::BTreeSet<String> = Default::default();
+    for o in observations {
+        let Some(ext) = o.path.extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+        let key = ext.to_ascii_lowercase();
+        match &o.license {
+            Some(lic) => {
+                ext_groups
+                    .entry(key)
+                    .or_insert_with(|| (ext.to_string(), Vec::new()))
+                    .1
+                    .push(lic.clone());
+            }
+            None => {
+                ext_of_unknown.insert(key);
+            }
+        }
+    }
+
+    let mut rules: Vec<GeneratedRule> = Vec::new();
+    let mut ext_rule_for: std::collections::BTreeSet<String> = Default::default();
+    for (key, (spelling, licenses)) in &ext_groups {
+        if ext_of_unknown.contains(key) {
+            continue;
+        }
+        let mut iter = licenses.iter();
+        let first = iter.next().expect("group is nonempty");
+        if iter.all(|l| crate::spdx::expressions_equal(l, first)) {
+            rules.push(GeneratedRule {
+                ext: Some(spelling.clone()),
+                file: None,
+                license: first.clone(),
+            });
+            ext_rule_for.insert(key.clone());
+        }
+    }
+    (rules, ext_rule_for)
+}
+
 fn exact_value(rel: &Path) -> String {
     let s = slash(rel);
     if s.contains('/') { s } else { format!("./{s}") }
@@ -482,6 +491,34 @@ fn render_config(generated: &GeneratedConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ext_compression_needs_uniform_known_licenses() {
+        // Uniform known licenses compress to one ext rule; a disagreeing
+        // license or an unknown file sharing the extension blocks it (those
+        // observations fall through to exact rules).
+        let obs = |path: &str, license: Option<&str>| Observation {
+            path: PathBuf::from(path),
+            license: license.map(str::to_string),
+        };
+        let observations = vec![
+            obs("a.rs", Some("MIT")),
+            obs("sub/b.rs", Some("MIT")),
+            obs("c.py", Some("MIT")),
+            obs("d.py", Some("Apache-2.0")),
+            obs("e.md", None),
+            obs("f.md", Some("MIT")),
+            obs("Makefile", Some("MIT")),
+        ];
+        let (rules, covered) = compressed_ext_rules(&observations);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].ext.as_deref(), Some("rs"));
+        assert_eq!(rules[0].license, "MIT");
+        assert_eq!(
+            covered,
+            std::collections::BTreeSet::from(["rs".to_string()])
+        );
+    }
 
     #[test]
     fn generated_toml_is_well_formed_for_adversarial_values() {

@@ -16,32 +16,7 @@ impl OutOfBand {
     /// `closest` fallbacks, and every contributing table's provenance.
     pub fn lookup(&self, rel_path: &Path) -> Option<OutOfBandEntry> {
         let rel_str = rel_path.to_string_lossy().replace('\\', "/");
-        // Per-document last match, root-first, stopping after an override.
-        let mut consulted: Vec<(&ReuseDoc, &OobTable)> = Vec::new();
-        for doc in &self.docs {
-            let Some(remainder) = under_base(&rel_str, &doc.base) else {
-                continue;
-            };
-            if let Some(table) = doc
-                .tables
-                .iter()
-                .rev()
-                .find(|t| matches_any(&t.matchers, remainder))
-            {
-                let is_override = table.precedence == Precedence::Override;
-                consulted.push((doc, table));
-                if is_override {
-                    break;
-                }
-            }
-        }
-        // dep5 paragraphs aggregate; the last matching paragraph wins (as in
-        // the reference tool), contributing alongside any REUSE tables.
-        let dep5_hit = self
-            .dep5
-            .iter()
-            .rev()
-            .find(|p| matches_any(&p.matchers, &rel_str));
+        let (consulted, dep5_hit) = self.consult_tables(&rel_str);
         if consulted.is_empty() && dep5_hit.is_none() {
             return None;
         }
@@ -98,48 +73,21 @@ impl OutOfBand {
         }
         // Per-field nearest-outward `closest` fallback (deepest consulted
         // table wins each field independently).
-        let mut fallback_licenses: Vec<String> = Vec::new();
-        let mut fallback_copyrights: Vec<String> = Vec::new();
-        let mut fallback_lic_origin: Option<MetadataOrigin> = None;
-        let mut fallback_cpr_origin: Option<MetadataOrigin> = None;
-        for (doc, table) in consulted.iter().rev() {
-            if table.precedence != Precedence::Closest {
-                continue;
-            }
-            if fallback_licenses.is_empty() && !table.licenses.is_empty() {
-                fallback_licenses = table.licenses.clone();
-                fallback_lic_origin = Some(MetadataOrigin {
-                    metadata_path: doc.rel.clone(),
-                    table_index: table.index,
-                    precedence: table.precedence,
-                    licenses: table.licenses.clone(),
-                    copyrights: table.copyrights.clone(),
-                });
-            }
-            if fallback_copyrights.is_empty() && !table.copyrights.is_empty() {
-                fallback_copyrights = table.copyrights.clone();
-                fallback_cpr_origin = Some(MetadataOrigin {
-                    metadata_path: doc.rel.clone(),
-                    table_index: table.index,
-                    precedence: table.precedence,
-                    licenses: table.licenses.clone(),
-                    copyrights: table.copyrights.clone(),
-                });
-            }
-        }
-        if fallback_lic_origin
+        let fb = closest_fallbacks(&consulted);
+        if fb
+            .lic_origin
             .as_ref()
-            .is_some_and(|o| Some(o) != fallback_cpr_origin.as_ref())
+            .is_some_and(|o| Some(o) != fb.cpr_origin.as_ref())
         {
-            origins.push(fallback_lic_origin.expect("checked"));
+            origins.push(fb.lic_origin.expect("checked"));
         }
-        if let Some(o) = fallback_cpr_origin {
+        if let Some(o) = fb.cpr_origin {
             origins.push(o);
         }
         if licenses.is_empty()
             && copyrights.is_empty()
-            && fallback_licenses.is_empty()
-            && fallback_copyrights.is_empty()
+            && fb.licenses.is_empty()
+            && fb.copyrights.is_empty()
         {
             // Tables matched but none carries any licensing information — an
             // override barrier still suppresses the file (reference behavior),
@@ -161,12 +109,47 @@ impl OutOfBand {
             source: primary_source,
             licenses,
             copyrights,
-            fallback_licenses,
-            fallback_copyrights,
+            fallback_licenses: fb.licenses,
+            fallback_copyrights: fb.copyrights,
             suppresses_file: barrier,
             precedence,
             origins,
         })
+    }
+
+    /// Tables consulted for a normalized repo-relative path: per-document
+    /// last match, root-first, stopping after an override barrier — plus the
+    /// last matching dep5 paragraph, which aggregates alongside REUSE tables.
+    fn consult_tables<'a>(
+        &'a self,
+        rel_str: &str,
+    ) -> (Vec<(&'a ReuseDoc, &'a OobTable)>, Option<&'a Dep5Para>) {
+        let mut consulted: Vec<(&ReuseDoc, &OobTable)> = Vec::new();
+        for doc in &self.docs {
+            let Some(remainder) = under_base(rel_str, &doc.base) else {
+                continue;
+            };
+            if let Some(table) = doc
+                .tables
+                .iter()
+                .rev()
+                .find(|t| matches_any(&t.matchers, remainder))
+            {
+                let is_override = table.precedence == Precedence::Override;
+                consulted.push((doc, table));
+                if is_override {
+                    break;
+                }
+            }
+        }
+        // dep5 paragraphs aggregate; the last matching paragraph wins (as in
+        // the reference tool), contributing alongside any REUSE tables.
+        let dep5_hit = self
+            .dep5
+            .iter()
+            .rev()
+            .find(|p| matches_any(&p.matchers, rel_str));
+        (consulted, dep5_hit)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -178,6 +161,50 @@ impl OutOfBand {
     pub fn has_dep5(&self) -> bool {
         self.dep5_present
     }
+}
+
+/// Per-field `closest` fallback resolved from the consulted tables: the
+/// deepest consulted `closest` table wins each field independently.
+struct ClosestFallbacks {
+    licenses: Vec<String>,
+    copyrights: Vec<String>,
+    lic_origin: Option<MetadataOrigin>,
+    cpr_origin: Option<MetadataOrigin>,
+}
+
+fn closest_fallbacks(consulted: &[(&ReuseDoc, &OobTable)]) -> ClosestFallbacks {
+    let mut fb = ClosestFallbacks {
+        licenses: Vec::new(),
+        copyrights: Vec::new(),
+        lic_origin: None,
+        cpr_origin: None,
+    };
+    for (doc, table) in consulted.iter().rev() {
+        if table.precedence != Precedence::Closest {
+            continue;
+        }
+        if fb.licenses.is_empty() && !table.licenses.is_empty() {
+            fb.licenses = table.licenses.clone();
+            fb.lic_origin = Some(MetadataOrigin {
+                metadata_path: doc.rel.clone(),
+                table_index: table.index,
+                precedence: table.precedence,
+                licenses: table.licenses.clone(),
+                copyrights: table.copyrights.clone(),
+            });
+        }
+        if fb.copyrights.is_empty() && !table.copyrights.is_empty() {
+            fb.copyrights = table.copyrights.clone();
+            fb.cpr_origin = Some(MetadataOrigin {
+                metadata_path: doc.rel.clone(),
+                table_index: table.index,
+                precedence: table.precedence,
+                licenses: table.licenses.clone(),
+                copyrights: table.copyrights.clone(),
+            });
+        }
+    }
+    fb
 }
 
 fn push_unique(target: &mut Vec<String>, iter: impl Iterator<Item = String>) {

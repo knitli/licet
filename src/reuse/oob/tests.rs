@@ -92,6 +92,35 @@ fn dep5_continuation_lines_unfold() {
 }
 
 #[test]
+fn unfold_dep5_paragraphs_joins_continuations() {
+    // Raw unfolding: continuation lines join with a space, a lone `.` is
+    // blank, field names match ASCII-case-insensitively, unknown fields
+    // neither set state nor leak content, and repeated `Files:` accumulate.
+    let paras = super::parse::unfold_dep5_paragraphs(
+        "Format: https://example.test/spec\n\
+         \n\
+         FILES: a.bin\n sub/b.bin\n\
+         copyright: 2026 A\n 2026 B\n .\n\
+         Upstream-Name: ignored\n continued-ignored\n\
+         License: MIT\n OR Apache-2.0\n\
+         \n\
+         Files: c.bin\n\
+         Copyright: 2027 C\n",
+    );
+    assert_eq!(paras.len(), 3);
+    assert_eq!(paras[0].files, "");
+    assert_eq!(paras[1].files, "a.bin sub/b.bin");
+    assert_eq!(
+        paras[1].copyright,
+        vec!["2026 A".to_string(), "2026 B".to_string()]
+    );
+    assert_eq!(paras[1].license, "MIT OR Apache-2.0");
+    assert_eq!(paras[2].files, "c.bin");
+    assert_eq!(paras[2].copyright, vec!["2027 C".to_string()]);
+    assert_eq!(paras[2].license, "");
+}
+
+#[test]
 fn dep5_last_paragraph_wins() {
     // Two paragraphs covering the same file: the last one governs, exactly
     // as the reference tool reports.
@@ -556,6 +585,67 @@ fn multiple_copyrights_serialize_as_list() {
             .unwrap()
             .fallback_copyrights,
         cprs
+    );
+}
+
+#[test]
+fn render_stanzas_covers_copyright_shapes() {
+    // Pure stanza rendering: absent/single/list copyright fields, the
+    // `override` stanza flag, glob-metachar escaping, and the document's
+    // newline convention — plus exactly which requests each stanza covers.
+    use super::write::{AnnotationDestination, AnnotationRequest, render_stanzas};
+    let cprs = vec!["2026 Acme".to_string(), "2027 Acme".to_string()];
+    let requests = vec![
+        AnnotationRequest {
+            rel_path: "a.png",
+            license: "MIT",
+            copyrights: &[],
+        },
+        AnnotationRequest {
+            rel_path: "sub/b.png",
+            license: "Apache-2.0",
+            copyrights: &cprs[..1],
+        },
+        AnnotationRequest {
+            rel_path: "a*b.png",
+            license: "CC0-1.0",
+            copyrights: &cprs,
+        },
+    ];
+    let dest = |i: usize, base: &str, use_override: bool| {
+        (
+            i,
+            AnnotationDestination {
+                doc_rel: PathBuf::from("REUSE.toml"),
+                base_path: base.to_string(),
+                use_override,
+            },
+        )
+    };
+    let jobs = vec![
+        dest(0, "a.png", false),
+        dest(1, "b.png", true),
+        dest(2, "a*b.png", false),
+    ];
+    let (text, appended) = render_stanzas(&jobs, &requests, "\r\n");
+    assert_eq!(appended, vec![0, 1, 2]);
+    assert_eq!(
+        text,
+        "[[annotations]]\r\n\
+         path = \"a.png\"\r\n\
+         SPDX-License-Identifier = \"MIT\"\r\n\
+         \r\n\
+         [[annotations]]\r\n\
+         path = \"b.png\"\r\n\
+         precedence = \"override\"\r\n\
+         SPDX-FileCopyrightText = \"2026 Acme\"\r\n\
+         SPDX-License-Identifier = \"Apache-2.0\"\r\n\
+         \r\n\
+         [[annotations]]\r\n\
+         path = \"a\\\\*b.png\"\r\n\
+         SPDX-FileCopyrightText = [\"2026 Acme\", \"2027 Acme\"]\r\n\
+         SPDX-License-Identifier = \"CC0-1.0\"\r\n\
+         \r\n"
     );
 }
 

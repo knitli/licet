@@ -216,39 +216,7 @@ pub fn atomic_write(
 
     let dest_state = classify_destination(&dest, relative, expected)?;
 
-    // Exclusively-created temp file in the destination directory: random name, so
-    // a pre-existing predictable `<name>.licet.tmp` (regular file or symlink) is
-    // never touched.
-    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(|e| {
-        WriteError::before(io::Error::new(
-            e.kind(),
-            format!("cannot create temp file for {}: {e}", relative.display()),
-        ))
-    })?;
-    if let Err(e) = (|| {
-        tmp.write_all(replacement)?;
-        tmp.flush()?;
-        match &dest_state {
-            Dest::Present { permissions } => {
-                tmp.as_file().set_permissions(permissions.clone())?;
-            }
-            #[cfg(unix)]
-            Dest::Absent => {
-                use std::os::unix::fs::PermissionsExt;
-                tmp.as_file()
-                    .set_permissions(std::fs::Permissions::from_mode(0o644))?;
-            }
-            #[cfg(not(unix))]
-            Dest::Absent => {}
-        }
-        tmp.as_file().sync_all()?;
-        Ok::<(), io::Error>(())
-    })() {
-        return Err(WriteError::before(io::Error::new(
-            e.kind(),
-            format!("cannot stage replacement for {}: {e}", relative.display()),
-        )));
-    }
+    let tmp = stage_replacement(parent, replacement, &dest_state, relative)?;
 
     // Re-verify the destination immediately before replacing it.
     recheck(&dest, relative, expected)?;
@@ -293,6 +261,51 @@ pub fn atomic_write(
         )));
     }
     Ok(())
+}
+
+/// Stage `replacement` in an exclusively-created temp file beside the
+/// destination: random name, so a pre-existing predictable
+/// `<name>.licet.tmp` (regular file or symlink) is never touched.
+/// Destination permissions carry over on replace (`0o644` on Unix
+/// creation); content is fsynced. Pure preparation — nothing is committed.
+fn stage_replacement(
+    parent: &Path,
+    replacement: &[u8],
+    dest_state: &Dest,
+    relative: &Path,
+) -> Result<tempfile::NamedTempFile, WriteError> {
+    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(|e| {
+        WriteError::before(io::Error::new(
+            e.kind(),
+            format!("cannot create temp file for {}: {e}", relative.display()),
+        ))
+    })?;
+    (|| {
+        tmp.write_all(replacement)?;
+        tmp.flush()?;
+        match dest_state {
+            Dest::Present { permissions } => {
+                tmp.as_file().set_permissions(permissions.clone())?;
+            }
+            #[cfg(unix)]
+            Dest::Absent => {
+                use std::os::unix::fs::PermissionsExt;
+                tmp.as_file()
+                    .set_permissions(std::fs::Permissions::from_mode(0o644))?;
+            }
+            #[cfg(not(unix))]
+            Dest::Absent => {}
+        }
+        tmp.as_file().sync_all()?;
+        Ok::<(), io::Error>(())
+    })()
+    .map_err(|e| {
+        WriteError::before(io::Error::new(
+            e.kind(),
+            format!("cannot stage replacement for {}: {e}", relative.display()),
+        ))
+    })?;
+    Ok(tmp)
 }
 
 /// Validate `relative` and join it onto an already-canonical root.

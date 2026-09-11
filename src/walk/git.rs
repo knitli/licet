@@ -228,33 +228,7 @@ impl IndexSnapshot {
     /// by object id.
     pub fn prefetch(&mut self, root: &Path, paths: &[PathBuf], extra: &[PathBuf]) -> Result<()> {
         let mut oids: HashSet<&str> = HashSet::new();
-        let mut want: Vec<PathBuf> = Vec::with_capacity(paths.len() * 2 + extra.len());
-        for p in paths {
-            want.push(p.clone());
-            want.push(sidecar_for(p));
-        }
-        want.extend(extra.iter().cloned());
-        // Repository-level metadata and every license text participate in the
-        // same snapshot so staged metadata/config/text changes are visible.
-        // `REUSE.toml` documents live at any depth; every one of them (plus
-        // the root `.reuse/dep5`) is prefetched so nested staged metadata
-        // resolves through the index, never the working copy.
-        want.push(PathBuf::from("REUSE.toml"));
-        want.push(PathBuf::from(".reuse/dep5"));
-        for (p, e) in &self.entries {
-            if e.is_regular_file()
-                && p.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n == "REUSE.toml")
-            {
-                want.push(p.clone());
-            }
-        }
-        for (p, e) in &self.entries {
-            if e.is_regular_file() && p.starts_with("LICENSES/") {
-                want.push(p.clone());
-            }
-        }
+        let want = self.prefetch_want_list(paths, extra);
         for p in &want {
             if let Some(e) = self.entries.get(p)
                 && e.is_regular_file()
@@ -301,6 +275,40 @@ impl IndexSnapshot {
         }
         parse_batch_output(&output.stdout, &missing, &mut self.blobs)?;
         Ok(())
+    }
+
+    /// Everything one `git cat-file --batch` round must fetch: the requested
+    /// paths plus their sidecars and `extra` (e.g. the effective config),
+    /// every `REUSE.toml` document at any depth, the root `.reuse/dep5`, and
+    /// every license text — so staged metadata/config/text changes resolve
+    /// through the index, never the working copy. Pure assembly over the
+    /// index entries, directly unit-testable.
+    fn prefetch_want_list(&self, paths: &[PathBuf], extra: &[PathBuf]) -> Vec<PathBuf> {
+        let mut want: Vec<PathBuf> = Vec::with_capacity(paths.len() * 2 + extra.len());
+        for p in paths {
+            want.push(p.clone());
+            want.push(sidecar_for(p));
+        }
+        want.extend(extra.iter().cloned());
+        // Repository-level metadata and every license text participate in the
+        // same snapshot so staged metadata/config/text changes are visible.
+        want.push(PathBuf::from("REUSE.toml"));
+        want.push(PathBuf::from(".reuse/dep5"));
+        for (p, e) in &self.entries {
+            if e.is_regular_file()
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n == "REUSE.toml")
+            {
+                want.push(p.clone());
+            }
+        }
+        for (p, e) in &self.entries {
+            if e.is_regular_file() && p.starts_with("LICENSES/") {
+                want.push(p.clone());
+            }
+        }
+        want
     }
 
     /// Blob bytes for a root-relative path: `None` when absent from the index,
@@ -702,5 +710,41 @@ mod tests {
         let mut blobs = HashMap::new();
         let out = b"deadbeef missing\n";
         assert!(parse_batch_output(out, &["deadbeef"], &mut blobs).is_err());
+    }
+
+    #[test]
+    fn want_list_pairs_sidecars_and_metadata() {
+        // The fetch set is exactly: requested paths + sidecars + extra,
+        // root metadata documents, every nested REUSE.toml, and every
+        // license text — symlinks and gitlinks never qualify.
+        let entry = |mode: u32| IndexEntry {
+            mode,
+            oid: "abc".to_string(),
+            stage: 0,
+        };
+        let snap = IndexSnapshot {
+            entries: HashMap::from([
+                (PathBuf::from("sub/REUSE.toml"), entry(0o100644)),
+                (PathBuf::from("LICENSES/MIT.txt"), entry(0o100644)),
+                (PathBuf::from("link.rs"), entry(0o120000)),
+                (PathBuf::from("submod"), entry(0o160000)),
+            ]),
+            blobs: HashMap::new(),
+        };
+        let mut want =
+            snap.prefetch_want_list(&[PathBuf::from("a.rs")], &[PathBuf::from("licet.toml")]);
+        want.sort();
+        assert_eq!(
+            want,
+            vec![
+                PathBuf::from(".reuse/dep5"),
+                PathBuf::from("LICENSES/MIT.txt"),
+                PathBuf::from("REUSE.toml"),
+                PathBuf::from("a.rs"),
+                PathBuf::from("a.rs.license"),
+                PathBuf::from("licet.toml"),
+                PathBuf::from("sub/REUSE.toml"),
+            ]
+        );
     }
 }

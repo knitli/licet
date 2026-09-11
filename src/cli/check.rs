@@ -127,58 +127,16 @@ fn explain_one(
     cwd: &std::path::Path,
     target: &std::path::Path,
 ) -> Result<ExitCode> {
-    let (root, _) = discover_root(cwd)?;
-    // Normalize through the explicit-file pipeline: outside-root and
-    // nonregular inputs fail here as usage errors.
-    let single = walk::prepare(
-        cwd,
-        &args.common.config_arg(cwd, &root),
-        &Selection::Files(vec![target.to_path_buf()]),
-        Purpose::Policy,
-        false,
-    )?;
-    let discovered = single.paths.first().cloned().ok_or_else(|| {
-        LicetError::Internal(format!(
-            "--explain: no evaluable path for {}",
-            target.display()
-        ))
-    })?;
-    let rel = discovered.rel_path.clone();
-    match std::fs::symlink_metadata(single.root.join(&rel)) {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(LicetError::Config(format!(
-                "--explain: no such file {}",
-                target.display()
-            )));
-        }
-        Err(e) => {
-            return Err(LicetError::Config(format!(
-                "--explain: cannot stat {}: {e}",
-                target.display()
-            )));
-        }
-    }
-    // An explicit selection restricts the answerable set.
-    if !matches!(args.common.selection()?, Selection::FullTree) {
-        let selected = walk::prepare(
-            cwd,
-            &args.common.config_arg(cwd, &root),
-            &args.common.selection()?,
-            Purpose::Policy,
-            false,
-        )?;
-        if !selected.paths.iter().any(|d| d.rel_path == rel) {
-            return Err(LicetError::Config(format!(
-                "--explain: {} is outside the selected file set",
-                target.display()
-            )));
-        }
-    }
-
-    let config = LicensingConfiguration::from_toml(&single.config_text)?;
-    let engine = Engine::new(single.root.clone(), &config, single.snapshot.clone(), true);
-    let scan = engine.scan(std::slice::from_ref(&discovered))?;
+    let resolved = resolve_explain_target(args, cwd, target)?;
+    let rel = resolved.rel.clone();
+    let config = LicensingConfiguration::from_toml(&resolved.prepared.config_text)?;
+    let engine = Engine::new(
+        resolved.prepared.root.clone(),
+        &config,
+        resolved.prepared.snapshot.clone(),
+        true,
+    );
+    let scan = engine.scan(std::slice::from_ref(&resolved.discovered))?;
     let state = scan.states.first().ok_or_else(|| {
         LicetError::Internal(format!("--explain: no state for {}", target.display()))
     })?;
@@ -221,6 +179,117 @@ fn explain_one(
 
     let excludes = walk::build_excludes(&config.exclude)?;
     let slash = rel.to_string_lossy().replace('\\', "/");
+    let sources = explain_sources(state);
+
+    let rel_display = slash.clone();
+    match args.common.format {
+        Format::Json => {
+            let mut report = Report::build(
+                "check",
+                &scan.states,
+                &[],
+                scan.warnings,
+                None,
+                crate::report::ReportMeta {
+                    snapshot: resolved.prepared.snapshot.source().as_str().to_string(),
+                    complete: true,
+                    ..Default::default()
+                },
+            );
+            report.exit_code = Some(ExitCode::Success.code());
+            super::emit_stdout(&format!("{}\n", report.to_json()))?;
+        }
+        Format::Human => {
+            super::emit_stdout(&render_explain(&ExplainInput {
+                path: &rel_display,
+                drift: &state.drift,
+                winner,
+                default_intent,
+                conflict_rules,
+                losers,
+                excluded_by_config: excludes.is_match(&slash),
+                reuse_ignored: resolved.discovered.reuse_ignored,
+                sources,
+                snapshot: resolved.prepared.snapshot.source().as_str(),
+            }))?;
+        }
+    }
+    Ok(ExitCode::Success)
+}
+
+/// An `--explain` target resolved against the selection pipeline: the
+/// single-file evaluation plan, the discovered entry, and its root-relative
+/// path. Outside-root and nonregular inputs fail here as usage errors, as
+/// does a target outside an explicitly selected file set.
+struct ExplainTarget {
+    prepared: walk::Prepared,
+    discovered: walk::Discovered,
+    rel: std::path::PathBuf,
+}
+
+fn resolve_explain_target(
+    args: &CheckArgs,
+    cwd: &std::path::Path,
+    target: &std::path::Path,
+) -> Result<ExplainTarget> {
+    let (root, _) = discover_root(cwd)?;
+    // Normalize through the explicit-file pipeline: outside-root and
+    // nonregular inputs fail here as usage errors.
+    let prepared = walk::prepare(
+        cwd,
+        &args.common.config_arg(cwd, &root),
+        &Selection::Files(vec![target.to_path_buf()]),
+        Purpose::Policy,
+        false,
+    )?;
+    let discovered = prepared.paths.first().cloned().ok_or_else(|| {
+        LicetError::Internal(format!(
+            "--explain: no evaluable path for {}",
+            target.display()
+        ))
+    })?;
+    let rel = discovered.rel_path.clone();
+    match std::fs::symlink_metadata(prepared.root.join(&rel)) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(LicetError::Config(format!(
+                "--explain: no such file {}",
+                target.display()
+            )));
+        }
+        Err(e) => {
+            return Err(LicetError::Config(format!(
+                "--explain: cannot stat {}: {e}",
+                target.display()
+            )));
+        }
+    }
+    // An explicit selection restricts the answerable set.
+    if !matches!(args.common.selection()?, Selection::FullTree) {
+        let selected = walk::prepare(
+            cwd,
+            &args.common.config_arg(cwd, &root),
+            &args.common.selection()?,
+            Purpose::Policy,
+            false,
+        )?;
+        if !selected.paths.iter().any(|d| d.rel_path == rel) {
+            return Err(LicetError::Config(format!(
+                "--explain: {} is outside the selected file set",
+                target.display()
+            )));
+        }
+    }
+    Ok(ExplainTarget {
+        prepared,
+        discovered,
+        rel,
+    })
+}
+
+/// Human provenance lines for an evaluated file: detection source,
+/// out-of-band table origins, and inventoried-but-non-policy findings.
+fn explain_sources(state: &crate::domain::FileLicensingState) -> Vec<String> {
     let mut sources = Vec::new();
     if let Some(s) = &state.actual.detected_source {
         sources.push(format!("detected via {}", s.as_str()));
@@ -247,39 +316,5 @@ fn explain_one(
             state.actual.invalid_license_values.len()
         ));
     }
-
-    let rel_display = slash.clone();
-    match args.common.format {
-        Format::Json => {
-            let mut report = Report::build(
-                "check",
-                &scan.states,
-                &[],
-                scan.warnings,
-                None,
-                crate::report::ReportMeta {
-                    snapshot: single.snapshot.source().as_str().to_string(),
-                    complete: true,
-                    ..Default::default()
-                },
-            );
-            report.exit_code = Some(ExitCode::Success.code());
-            super::emit_stdout(&format!("{}\n", report.to_json()))?;
-        }
-        Format::Human => {
-            super::emit_stdout(&render_explain(&ExplainInput {
-                path: &rel_display,
-                drift: &state.drift,
-                winner,
-                default_intent,
-                conflict_rules,
-                losers,
-                excluded_by_config: excludes.is_match(&slash),
-                reuse_ignored: discovered.reuse_ignored,
-                sources,
-                snapshot: single.snapshot.source().as_str(),
-            }))?;
-        }
-    }
-    Ok(ExitCode::Success)
+    sources
 }
