@@ -133,27 +133,32 @@ mod tests {
         assert_eq!(resolve_in("curl", &join_path(&[bin.path()])), None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn non_executable_file_is_not_a_match() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(dir.path().join("git"), b"not executable").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(dir.path().join("git"))
-                .unwrap()
-                .permissions();
-            perms.set_mode(0o644);
-            std::fs::set_permissions(dir.path().join("git"), perms).unwrap();
-        }
-        #[cfg(not(unix))]
-        {
-            // On non-Unix every regular file counts; just assert the positive
-            // path instead of fighting platform semantics here.
-            assert!(is_executable_file(&dir.path().join("git")));
-            return;
-        }
+        let mut perms = std::fs::metadata(dir.path().join("git"))
+            .unwrap()
+            .permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(dir.path().join("git"), perms).unwrap();
         assert_eq!(resolve_in("git", &join_path(&[dir.path()])), None);
+    }
+
+    /// On non-Unix every regular file counts as executable; the resolver
+    /// accepts a plain file there rather than fighting platform semantics.
+    #[cfg(not(unix))]
+    #[test]
+    fn regular_file_is_a_match() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("git"), b"not executable").unwrap();
+        assert!(is_executable_file(&dir.path().join("git")));
+        assert_eq!(
+            resolve_in("git", &join_path(&[dir.path()])),
+            Some(dir.path().join("git"))
+        );
     }
 
     #[test]
