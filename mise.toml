@@ -7,10 +7,8 @@ cargo-release = "latest"
 
 [tools.'pipx:reuse']
 version = "latest"
-depends = "python"
-
-[shell_alias]
-claude = "ECC_GATEGUARD=off COLORTERM=1 claude"
+uvx_args = "--python 3.13"
+extras = "charset-normalizer"
 
 [settings]
 experimental = true
