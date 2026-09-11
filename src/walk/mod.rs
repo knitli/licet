@@ -8,7 +8,9 @@
 //! [`git::Snapshot`] so `--staged` evaluates index blobs — including staged
 //! metadata, configuration, and license texts — while everything else reads
 //! working-tree bytes. Explicit file arguments are normalized lexically
-//! (no symlink resolution) and rejected when outside the root.
+//! (no symlink resolution; on Windows both sides additionally compare
+//! through a spelling-normalized form so 8.3 short-name aliases match the
+//! long form `git rev-parse` reports) and rejected when outside the root.
 
 pub mod git;
 
@@ -294,7 +296,10 @@ fn resolve_config_rel(cwd: &Path, root: &Path, config_arg: &Path) -> Option<Path
         cwd.join(config_arg)
     };
     let norm = lexical_normalize(&abs);
-    norm.strip_prefix(root).map(|p| p.to_path_buf()).ok()
+    comparison_spelling(&norm)
+        .strip_prefix(comparison_spelling(root))
+        .map(|p| p.to_path_buf())
+        .ok()
 }
 
 /// Read configuration text for policy commands: through the snapshot when the
@@ -538,8 +543,8 @@ fn normalize_file_list(root: &Path, cwd: &Path, files: &[PathBuf]) -> Result<Vec
         } else {
             lexical_normalize(&cwd.join(f))
         };
-        let rel = abs
-            .strip_prefix(root)
+        let rel = comparison_spelling(&abs)
+            .strip_prefix(comparison_spelling(root))
             .map(|p| p.to_path_buf())
             .map_err(|_| {
                 LicetError::Config(format!(
@@ -579,6 +584,47 @@ fn normalize_file_list(root: &Path, cwd: &Path, files: &[PathBuf]) -> Result<Vec
     out.sort();
     out.dedup();
     Ok(out)
+}
+
+/// Spelling of `path` for prefix comparison against the discovered root.
+///
+/// On Windows the process cwd can carry 8.3 short-name aliases
+/// (`C:\Users\RUNNER~1\…`) while `git rev-parse` reports the long form
+/// (`C:/Users/runneradmin/…`): a lexical `strip_prefix` then wrongly rejects
+/// in-root explicit inputs as "outside the project root". Both spellings name
+/// the same directory, so on Windows both sides compare through
+/// `canonicalize` (spelling aliases resolved; a missing input falls back to
+/// its nearest existing ancestor with the remainder reattached, else the raw
+/// path). Unix keeps the lexical path untouched, preserving the
+/// no-symlink-resolution contract there.
+#[cfg(windows)]
+fn comparison_spelling(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut ancestor = path;
+    loop {
+        if let Ok(canonical) = std::fs::canonicalize(ancestor) {
+            let mut out = canonical;
+            for comp in rest.iter().rev() {
+                out.push(comp);
+            }
+            return out;
+        }
+        let Some(parent) = ancestor.parent() else {
+            return path.to_path_buf();
+        };
+        if let Some(name) = ancestor.file_name() {
+            rest.push(name.to_os_string());
+        }
+        ancestor = parent;
+    }
+}
+
+/// On Unix the lexical path already compares correctly against the
+/// git-reported root (the kernel resolves alias spellings in `current_dir`),
+/// so comparison needs no filesystem touch.
+#[cfg(not(windows))]
+fn comparison_spelling(path: &Path) -> PathBuf {
+    path.to_path_buf()
 }
 
 /// Lexically normalize `.`/`..` without resolving symlinks or touching the
@@ -672,6 +718,23 @@ mod tests {
         assert_eq!(
             lexical_normalize(Path::new("/r/a/../../b")),
             PathBuf::from("/b")
+        );
+    }
+
+    /// Windows-only: a missing explicit input still compares through its
+    /// nearest existing ancestor, so absence classifies as unreadable rather
+    /// than "outside the project root" under aliased cwd spellings.
+    #[cfg(windows)]
+    #[test]
+    fn comparison_spelling_covers_missing_files() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let missing = dir.path().join("no-such-file.rs");
+        assert!(!missing.exists());
+        assert_eq!(
+            comparison_spelling(&missing),
+            std::fs::canonicalize(dir.path())
+                .unwrap()
+                .join("no-such-file.rs")
         );
     }
 
