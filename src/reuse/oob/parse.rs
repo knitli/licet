@@ -284,7 +284,16 @@ fn compile_reuse_pattern(pattern: &str) -> ReuseMatcher {
     } else {
         out
     };
-    match GlobBuilder::new(&full).literal_separator(true).build() {
+    // Force backslash escapes on every platform: globset disables them by
+    // default where `\` is a path separator (Windows), which would turn our
+    // emitted `\?`, `\[`, `\X` literals into separators. licet generates
+    // this pattern text itself and matches `/`-normalized candidates, so
+    // matching must be identical on all platforms.
+    match GlobBuilder::new(&full)
+        .literal_separator(true)
+        .backslash_escape(true)
+        .build()
+    {
         Ok(g) => ReuseMatcher::Glob(g.compile_matcher()),
         Err(_) => ReuseMatcher::Literal(pattern.to_string()),
     }
@@ -293,7 +302,13 @@ fn compile_reuse_pattern(pattern: &str) -> ReuseMatcher {
 /// Compile one `.reuse/dep5` `Files:` pattern: shell-style wildcards where
 /// `*` crosses `/` (verified against the reference tool), unlike REUSE.toml.
 fn compile_dep5_pattern(pattern: &str) -> ReuseMatcher {
-    match GlobBuilder::new(pattern).literal_separator(false).build() {
+    // Same platform-independence requirement as REUSE.toml patterns above:
+    // dep5 `Files:` entries must match identically on every OS.
+    match GlobBuilder::new(pattern)
+        .literal_separator(false)
+        .backslash_escape(true)
+        .build()
+    {
         Ok(g) => ReuseMatcher::Glob(g.compile_matcher()),
         Err(_) => ReuseMatcher::Literal(pattern.to_string()),
     }
