@@ -11,7 +11,9 @@
 //! selected content ([`crate::domain::ContentSource`]).
 
 use std::collections::{HashMap, HashSet};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
+#[cfg(unix)]
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use crate::domain::ContentSource;

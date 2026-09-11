@@ -457,7 +457,7 @@ fn is_link(meta: &std::fs::Metadata) -> bool {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::FileAttributesExt;
+        use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
         meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
     }
