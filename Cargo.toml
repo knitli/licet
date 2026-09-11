@@ -24,23 +24,28 @@ harness = false
 name = "scan"
 
 [dependencies]
-aho-corasick = "1.1.4"
-anyhow = "1.0.103"
-bstr = "1.12.3"
-clap = { version = "4.6.1", features = ["derive"] }
-clap_complete = "4.6.5"
-globset = "0.4.18"
+aho-corasick = "1.1.5"
+anyhow = "1.0.104"
+bstr = "1.13.1"
+clap = { version = "4.6.6", features = ["derive"] }
+clap_complete = "4.6.9"
+globset = "0.4.20"
 ignore = "0.4.26"
-memchr = "2.8.2"
+memchr = "2.8.3"
 rayon = "1.12.0"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.104"
-smallvec = "1.15.2"
 smol_str = "0.3.6"
 tempfile = "3.27.0"
-spdx = "0.13.4"
-thiserror = "2.0.18"
-toml = "1.1.2"
+serde = { version = "1.0.229", features = ["derive"] }
+sha2 = "0.11.0"
+smallvec = "1.16.0"
+spdx = "0.13.5"
+thiserror = "2.0.20"
+toml = "1.1.6"
+
+[dependencies.gix]
+version = "0.87.1"
+default-features = false
+features = ["dirwalk", "max-performance-safe", "revision", "sha1", "status"]
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
